@@ -1,0 +1,249 @@
+PICKLE BALL NI JUAN
+Court Reservation & Management System
+Final System Objectives Document
+Project Overview
+System Name: Pickle Ball ni Juan - Court Reservation & Management System
+
+Platform: Web-based (Laravel PHP Framework)
+
+Target Users: End Users (Customers), Staff, Admin, Super Admin
+
+Purpose: To provide a complete digital solution for managing pickle ball court reservations, equipment rentals, payment processing (manual GCash confirmation), walk-in bookings, and facility management across multiple locations.
+
+General Objective
+To develop a secure, scalable, and user-friendly Laravel-based reservation management system for Pickle Ball ni Juan that enables customers to book courts and equipment online, provides staff with tools to manage walk-in bookings and customer check-ins, and gives administrators full control over court management, pricing, user accounts, and system reporting — all without requiring complex API integrations for payments.
+
+Specific Objectives
+A. USER MANAGEMENT
+#	Objective
+A1	To require mandatory user accounts for all system access — no guest bookings allowed.
+A2	To allow end users to self-register using email and mobile number with OTP verification.
+A3	To enable admin to create staff and admin accounts (no self-registration for staff roles).
+A4	To support five user roles with distinct permissions: Super Admin, Admin, Location Manager, Staff, End User.
+A5	To allow users to login, manage profile, view booking history, and track loyalty points.
+A6	To implement account lockout after multiple failed login attempts.
+A7	To provide password reset functionality via email or SMS.
+B. COURT & LOCATION MANAGEMENT
+#	Objective
+B1	To support multiple locations/branches with independent operating hours and pricing.
+B2	To allow admin to add, edit, delete, and manage courts per location.
+B3	To enable admin to upload multiple photos per court with primary image selection.
+B4	To provide Google Maps integration showing all locations with pins, addresses, and directions.
+B5	To allow admin to set custom operating hours per court including break times.
+B6	To enable scheduled court maintenance closures (regular maintenance, tournaments, private events, emergencies).
+B7	To support recurring maintenance closures (e.g., every Monday cleaning).
+C. PRICING & RULES
+#	Objective
+C1	To allow admin to set dynamic pricing rules based on day of week, time of day, holidays, and peak seasons.
+C2	To support different rates for weekdays vs weekends/holidays.
+C3	To enable peak hour surcharges (e.g., evenings +20%).
+C4	To allow admin to set minimum and maximum booking hours (e.g., min 1 hour, max 4 hours).
+C5	To enable discount rules for promotions or loyalty members.
+C6	To provide tax configuration (e.g., VAT) applied to all bookings.
+D. EQUIPMENT RENTAL MANAGEMENT
+#	Objective
+D1	To allow customers to rent rackets and balls during booking.
+D2	To enable admin to set rental prices for each equipment type.
+D3	To track real-time equipment inventory per location (available, reserved, damaged, lost, under maintenance).
+D4	To auto-deduct inventory when a booking is confirmed.
+D5	To auto-restore inventory when a booking is cancelled.
+D6	To provide low-stock alerts when inventory falls below reorder point.
+D7	To allow staff to log equipment damage or loss during check-out.
+D8	To support damage charges added to customer's bill.
+D9	To enable deposit collection for high-value equipment rentals.
+E. RESERVATION & CALENDAR
+#	Objective
+E1	To provide an interactive calendar showing availability per court and per location.
+E2	To display color-coded slots: 🟢 Available / 🔴 Booked & Paid / 🟡 Pending Payment / ⚪ Maintenance.
+E3	To prevent double-booking using database locking during reservation creation.
+E4	To allow users to book up to 30 days in advance.
+E5	To enforce minimum notice period (e.g., cannot book less than 1 hour before start time).
+E6	To support buffer time between bookings (e.g., 15 minutes for court cleaning).
+E7	To allow users to select equipment (rackets/balls) during booking and see real-time availability.
+E8	To calculate total price automatically (court fee + equipment rental - discounts + tax).
+E9	To temporarily hold a selected time slot for 2 hours while user completes payment.
+E10	To automatically release unpaid reservations after expiry.
+F. PAYMENT PROCESSING (Manual GCash Confirmation)
+#	Objective
+F1	To display the owner's GCash number prominently at checkout.
+F2	To require user to click "I Have Paid" after sending payment to owner's GCash.
+F3	To allow user to upload screenshot of GCash transaction as proof.
+F4	To require user to enter GCash reference number for tracking.
+F5	To set reservation status to "Pending Verification" after user submits payment proof.
+F6	To notify admin/staff when a new payment is pending verification.
+F7	To allow admin/staff to view screenshot and reference number for verification.
+F8	To enable admin/staff to click "Confirm Payment" (status becomes "Paid/Confirmed").
+F9	To enable admin/staff to click "Reject Payment" with reason (reservation auto-cancelled).
+F10	To support walk-in cash payments processed by staff.
+F11	To generate audit trail for all payment verifications (who confirmed what and when).
+F12	To support partial refunds based on cancellation policy.
+G. DIGITAL RECEIPT (No Printing Required)
+#	Objective
+G1	To generate a digital receipt immediately after payment is confirmed.
+G2	To include in receipt: Reservation ID, customer name, court details, date/time, equipment, amounts paid, payment method, GCash reference number, confirmation staff name.
+G3	To make receipt viewable in user dashboard anytime.
+G4	To email a copy of the receipt to the user.
+G5	To allow user to screenshot receipt for offline use — no printing required.
+G6	To allow staff to re-send receipt to customer if needed.
+G7	To display receipt on staff check-in screen for verification.
+H. WALK-IN BOOKING (Staff Only)
+#	Objective
+H1	To allow staff to create reservations for walk-in customers.
+H2	To support cash payments (staff marks as paid immediately).
+H3	To support GCash payments for walk-ins (customer pays owner's GCash, staff verifies and confirms).
+H4	To collect customer name and mobile number for walk-in bookings.
+H5	To optionally create a system account for walk-in customer (for future bookings).
+H6	To generate digital receipt for walk-in customer (can be screenshot or printed if requested).
+H7	To deduct equipment inventory immediately upon walk-in confirmation.
+I. CHECK-IN & VALIDATION (No QR Code)
+#	Objective
+I1	To allow staff to search for reservation by: Reservation ID, Customer Name, or Date + Time + Court.
+I2	To display full reservation details including payment status and equipment rented.
+I3	To allow staff to click "Check-In" to mark customer as arrived.
+I4	To record check-in time and which staff performed check-in.
+I5	To allow staff to release equipment to customer during check-in.
+I6	To allow staff to click "Complete" after session ends and equipment returned.
+I7	To record equipment return status (returned, damaged, lost).
+I8	To calculate additional charges for damages or late returns during check-out.
+I9	To allow staff to collect additional payments for damages/late fees.
+J. CANCELLATION & REFUND
+#	Objective
+J1	To allow admin to define cancellation policies (e.g., 24+ hours = 100% refund, 12-24 hours = 50% refund, less than 12 hours = 0% refund).
+J2	To allow users to cancel online within allowed period.
+J3	To auto-calculate refund amount based on policy.
+J4	To allow admin/staff to cancel reservations on behalf of customers.
+J5	To log cancellation reason for reporting purposes.
+J6	To automatically restore equipment inventory upon cancellation.
+J7	To free up court time slot immediately upon cancellation.
+J8	To mark no-show reservations after session end with no check-in.
+J9	To allow admin to track repeat no-show customers for potential penalties.
+K. RATINGS & REVIEWS
+#	Objective
+K1	To allow customers to rate courts after completed bookings (1-5 stars).
+K2	To allow customers to leave text reviews with optional photos.
+K3	To support category-based ratings (cleanliness, facilities, staff, value).
+K4	To display average rating per court on court details page.
+K5	To allow admin to view all ratings from admin panel.
+K6	To allow admin to manually adjust ratings with change log and reason (for dispute resolution or promotional changes).
+K7	To allow admin to respond to customer reviews.
+K8	To allow admin to hide/reject inappropriate reviews.
+K9	To let other users mark reviews as "Helpful" or "Not Helpful".
+K10	To audit all rating changes (original vs adjusted, who changed, why, when).
+L. ADMIN MANAGEMENT FEATURES
+#	Objective
+L1	Dashboard: View key metrics (today's bookings, pending verifications, revenue, utilization rate).
+L2	Court Management: Add/edit/delete courts, set pricing rules, upload photos, set operating hours.
+L3	Location Management: Add/edit/delete branches, set address, Google Maps coordinates, contact info.
+L4	Equipment Management: Add/edit equipment types, set rental prices, track inventory per location.
+L5	User Management: Create/edit/delete staff and admin accounts, view all end users, reset passwords.
+L6	Payment Verification: View all pending payments, confirm or reject with screenshot verification.
+L7	Reservation Management: View all reservations, cancel/modify as needed.
+L8	Ratings Management: View, edit, respond to, or hide user ratings.
+L9	Reports: Generate daily, weekly, monthly reports on revenue, bookings, no-shows, peak hours, equipment usage.
+L10	System Settings: Configure GCash number, pricing rules, cancellation policies, notification settings.
+L11	Audit Logs: View all system activities (who did what and when).
+M. STAFF FEATURES
+#	Objective
+M1	Dashboard: View today's schedule for assigned location(s).
+M2	Calendar: View all reservations for assigned location(s).
+M3	Walk-in Booking: Create new reservations for walk-in customers.
+M4	Payment Verification: Confirm or reject GCash payment submissions (if given permission).
+M5	Check-in: Search and check-in customers, release equipment.
+M6	Check-out: Complete sessions, return equipment, log damages.
+M7	View Reservations: See all upcoming and past reservations for assigned location.
+M8	Cancel Reservations: Cancel reservations (with reason) if given permission.
+N. END USER FEATURES
+#	Objective
+N1	Registration/Login: Create account, verify email/mobile, login, reset password.
+N2	Dashboard: View upcoming bookings, past bookings, total spent, loyalty points.
+N3	Booking Calendar: Browse court availability by date, location, and time.
+N4	Make Reservation: Select court, time slot, equipment, review pricing, submit booking.
+N5	Payment: View owner's GCash number, upload payment proof, enter reference number.
+N6	View Receipt: Access digital receipt anytime from dashboard.
+N7	Cancel Booking: Cancel reservation within allowed period and see refund amount.
+N8	Rate & Review: Rate courts after completed bookings.
+N9	Profile Management: Update personal information, change password.
+N10	Booking History: View all past and upcoming reservations with status.
+O. REPORTING & ANALYTICS
+#	Objective
+O1	Revenue Report: Daily/weekly/monthly revenue by location, payment method, reservation type.
+O2	Booking Report: Number of bookings by date, time, court, location.
+O3	Peak Hours Report: Identify busiest hours and days for staffing optimization.
+O4	Cancellation Report: Track cancellation rates and reasons.
+O5	No-Show Report: Identify repeat no-show customers.
+O6	Equipment Usage Report: Most rented equipment, rental frequency.
+O7	Inventory Report: Current stock levels, low-stock alerts.
+O8	Utilization Rate: Percentage of available court hours actually booked.
+O9	Customer Report: New vs returning customers, top spenders.
+O10	Export Function: Export any report to CSV/Excel/PDF.
+P. SYSTEM & SECURITY
+#	Objective
+P1	Role-Based Access Control (RBAC): Every action is permission-based per user role.
+P2	Audit Trail: Log all significant actions (booking, cancellation, payment confirmation, etc.).
+P3	Rate Limiting: Prevent brute force attacks on login and forms.
+P4	Input Validation: Sanitize all user inputs to prevent SQL injection and XSS.
+P5	HTTPS Enforcement: All traffic encrypted.
+P6	Automatic Logout: After period of inactivity.
+P7	Database Backups: Automated daily backups.
+P8	Queue System: For email/SMS notifications (non-blocking).
+P9	Soft Deletes: Data is never permanently deleted, just marked as deleted.
+P10	Timezone Support: All times stored in UTC, displayed in user's local timezone (Asia/Manila default).
+Non-Functional Objectives
+#	Objective
+N1	Performance: Page load time under 3 seconds on standard internet connection.
+N2	Availability: 99% uptime during operating hours.
+N3	Scalability: System must handle up to 500 concurrent users.
+N4	Mobile Responsiveness: Fully functional on smartphones and tablets.
+N5	Browser Support: Chrome, Firefox, Safari, Edge (latest 2 versions).
+N6	Maintainability: Clean, documented code following Laravel best practices.
+SMART Objective (Summary Statement)
+*To develop a Laravel-based reservation system for Pickle Ball ni Juan with mandatory user accounts, multi-location support, real-time court availability calendar, manual GCash payment confirmation (no API), digital receipts, walk-in booking, staff check-in/out, equipment inventory tracking, admin-controlled ratings with audit logs, and comprehensive reporting — to be delivered within 10-12 weeks, reducing manual booking errors to zero and cutting customer check-in time to under 1 minute.*
+
+Out of Scope (Phase 2 or Not Included)
+The following features are NOT included in this initial development:
+
+Feature	Reason
+GCash API automatic payment verification	Client preference — manual confirmation only
+QR code scanning for check-in	Client preference — staff search only
+Mobile app (iOS/Android)	Web-based PWA as Phase 2
+Credit/debit card payments	GCash and cash only
+Real-time SMS notifications	Can be added as Phase 2
+Membership subscription plans	Phase 2 feature
+Online tournament management	Phase 2 feature
+Chat support	Phase 2 feature
+POS (Point of Sale) integration	Not needed
+Third-party accounting software integration	Phase 2 if requested
+Success Metrics (How to Measure)
+Metric	Target
+Reduction in double-booking incidents	100% elimination
+Average check-in time	Under 1 minute
+Online booking completion rate	Over 80%
+Payment verification turnaround	Under 4 hours
+System uptime	99% during operating hours
+User satisfaction (post-launch survey)	Minimum 4/5 stars
+Sign-off Section
+text
+┌─────────────────────────────────────────────────────────────────────┐
+│                    CLIENT APPROVAL SIGN-OFF                         │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  I have reviewed the above objectives for the                       │
+│  Pickle Ball ni Juan - Court Reservation & Management System        │
+│  and approve them for development.                                  │
+│                                                                      │
+│  Client Name: __________________________                            │
+│                                                                      │
+│  Signature: __________________________                              │
+│                                                                      │
+│  Date: __________________________                                   │
+│                                                                      │
+│  Developer Name: __________________________                         │
+│                                                                      │
+│  Signature: __________________________                              │
+│                                                                      │
+│  Date: __________________________                                   │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+Document Version
+Version	Date	Author	Changes
+1.0	2026-05-01	System Developer	Initial final objectives document

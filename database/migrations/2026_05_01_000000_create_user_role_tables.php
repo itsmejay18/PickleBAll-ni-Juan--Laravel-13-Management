@@ -21,10 +21,26 @@ return new class extends Migration
 
         DB::table('user_role_types')->insert([
             [
-                'role_name' => 'Owner/Admin',
-                'role_slug' => 'owner_admin',
-                'description' => 'Business owner or administrator with full management access.',
+                'role_name' => 'Super Admin',
+                'role_slug' => 'super_admin',
+                'description' => 'System owner with unrestricted platform access.',
                 'priority_level' => 100,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'role_name' => 'Admin',
+                'role_slug' => 'admin',
+                'description' => 'Administrator with business management access.',
+                'priority_level' => 80,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'role_name' => 'Location Manager',
+                'role_slug' => 'location_manager',
+                'description' => 'Manager for assigned branch operations.',
+                'priority_level' => 60,
                 'created_at' => now(),
                 'updated_at' => now(),
             ],
@@ -32,7 +48,7 @@ return new class extends Migration
                 'role_name' => 'Staff',
                 'role_slug' => 'staff',
                 'description' => 'Facility staff who can manage daily operations.',
-                'priority_level' => 50,
+                'priority_level' => 40,
                 'created_at' => now(),
                 'updated_at' => now(),
             ],
