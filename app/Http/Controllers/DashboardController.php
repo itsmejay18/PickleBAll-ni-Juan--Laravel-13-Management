@@ -46,13 +46,13 @@ class DashboardController extends Controller
                 ['label' => "Today's schedule", 'value' => '0', 'detail' => 'M1, M2', 'icon' => 'fa-calendar-day'],
                 ['label' => 'Check-ins due', 'value' => '0', 'detail' => 'I1-I5', 'icon' => 'fa-clipboard-check'],
                 ['label' => 'Payments to verify', 'value' => '0', 'detail' => 'M4', 'icon' => 'fa-money-check'],
-                ['label' => 'Equipment returns', 'value' => '0', 'detail' => 'I6-I9', 'icon' => 'fa-table-tennis-paddle-ball'],
+                ['label' => 'Equipment returns', 'value' => '0', 'detail' => 'I6-I9', 'icon' => 'fa-table-tennis'],
             ],
             default => [
                 ['label' => 'Upcoming bookings', 'value' => '0', 'detail' => 'N2, N10', 'icon' => 'fa-calendar'],
                 ['label' => 'Pending payments', 'value' => '0', 'detail' => 'N5', 'icon' => 'fa-wallet'],
                 ['label' => 'Loyalty points', 'value' => '0', 'detail' => 'A5', 'icon' => 'fa-star'],
-                ['label' => 'Total spent', 'value' => 'PHP 0.00', 'detail' => 'N2', 'icon' => 'fa-chart-simple'],
+                ['label' => 'Total spent', 'value' => 'PHP 0.00', 'detail' => 'N2', 'icon' => 'fa-chart-line'],
             ],
         };
     }

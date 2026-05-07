@@ -41,7 +41,7 @@
                             <h6>Reservation Calendar</h6>
                             <p class="text-sm mb-0">Availability colors follow E2: available, booked, pending payment, maintenance.</p>
                         </div>
-                        <a href="#" class="btn btn-sm bg-gradient-info mb-0">New reservation</a>
+                        <a href="{{ route('modules.show', 'book-court') }}" class="btn btn-sm bg-gradient-info mb-0">New reservation</a>
                     </div>
                 </div>
                 <div class="card-body">

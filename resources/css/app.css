@@ -7,6 +7,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Tailwind's .collapse utility sets visibility: collapse and hides Bootstrap nav collapses. */
+.collapse {
+    visibility: visible;
+}
+
+.navbar-vertical.navbar-expand-xs .navbar-collapse {
+    display: block;
+}
+
 .pbj-sidebar-link {
     min-height: 42px;
 }

@@ -3,6 +3,7 @@
     $roleLabel = $user?->roles->pluck('name')->map(fn ($role) => str_replace('_', ' ', $role))->implode(', ') ?: 'End User';
     $dashboardActive = request()->routeIs('dashboard');
     $profileActive = request()->routeIs('profile.*');
+    $moduleActive = fn (string $module): bool => request()->routeIs('modules.show') && request()->route('module') === $module;
 @endphp
 
 <!DOCTYPE html>
@@ -45,28 +46,72 @@
                         <li class="nav-item mt-3">
                             <h6 class="ps-4 ms-2 text-uppercase text-xs font-weight-bolder opacity-6">Admin</h6>
                         </li>
-                        <li class="nav-item"><a class="nav-link pbj-sidebar-link" href="#"><i class="fas fa-location-dot text-sm me-3 ms-2"></i> Locations</a></li>
-                        <li class="nav-item"><a class="nav-link pbj-sidebar-link" href="#"><i class="fas fa-table-tennis-paddle-ball text-sm me-3 ms-2"></i> Courts</a></li>
-                        <li class="nav-item"><a class="nav-link pbj-sidebar-link" href="#"><i class="fas fa-money-check-dollar text-sm me-3 ms-2"></i> Payment Verification</a></li>
-                        <li class="nav-item"><a class="nav-link pbj-sidebar-link" href="#"><i class="fas fa-boxes-stacked text-sm me-3 ms-2"></i> Equipment</a></li>
-                        <li class="nav-item"><a class="nav-link pbj-sidebar-link" href="#"><i class="fas fa-file-export text-sm me-3 ms-2"></i> Reports</a></li>
+                        <li class="nav-item">
+                            <a class="nav-link pbj-sidebar-link {{ $moduleActive('locations') ? 'active' : '' }}" href="{{ route('modules.show', 'locations') }}">
+                                <i class="fas fa-map-marker-alt text-sm me-3 ms-2"></i> Locations
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link pbj-sidebar-link {{ $moduleActive('courts') ? 'active' : '' }}" href="{{ route('modules.show', 'courts') }}">
+                                <i class="fas fa-table-tennis text-sm me-3 ms-2"></i> Courts
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link pbj-sidebar-link {{ $moduleActive('payments') ? 'active' : '' }}" href="{{ route('modules.show', 'payments') }}">
+                                <i class="fas fa-money-check-alt text-sm me-3 ms-2"></i> Payment Verification
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link pbj-sidebar-link {{ $moduleActive('equipment') ? 'active' : '' }}" href="{{ route('modules.show', 'equipment') }}">
+                                <i class="fas fa-boxes text-sm me-3 ms-2"></i> Equipment
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link pbj-sidebar-link {{ $moduleActive('reports') ? 'active' : '' }}" href="{{ route('modules.show', 'reports') }}">
+                                <i class="fas fa-file-export text-sm me-3 ms-2"></i> Reports
+                            </a>
+                        </li>
                     @endrole
 
                     @role('location_manager|staff')
                         <li class="nav-item mt-3">
                             <h6 class="ps-4 ms-2 text-uppercase text-xs font-weight-bolder opacity-6">Staff</h6>
                         </li>
-                        <li class="nav-item"><a class="nav-link pbj-sidebar-link" href="#"><i class="fas fa-person-walking text-sm me-3 ms-2"></i> Walk-in Booking</a></li>
-                        <li class="nav-item"><a class="nav-link pbj-sidebar-link" href="#"><i class="fas fa-clipboard-check text-sm me-3 ms-2"></i> Check-in</a></li>
-                        <li class="nav-item"><a class="nav-link pbj-sidebar-link" href="#"><i class="fas fa-arrow-right-from-bracket text-sm me-3 ms-2"></i> Check-out</a></li>
+                        <li class="nav-item">
+                            <a class="nav-link pbj-sidebar-link {{ $moduleActive('walk-ins') ? 'active' : '' }}" href="{{ route('modules.show', 'walk-ins') }}">
+                                <i class="fas fa-walking text-sm me-3 ms-2"></i> Walk-in Booking
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link pbj-sidebar-link {{ $moduleActive('check-ins') ? 'active' : '' }}" href="{{ route('modules.show', 'check-ins') }}">
+                                <i class="fas fa-clipboard-check text-sm me-3 ms-2"></i> Check-in
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link pbj-sidebar-link {{ $moduleActive('check-outs') ? 'active' : '' }}" href="{{ route('modules.show', 'check-outs') }}">
+                                <i class="fas fa-sign-out-alt text-sm me-3 ms-2"></i> Check-out
+                            </a>
+                        </li>
                     @endrole
 
                     <li class="nav-item mt-3">
                         <h6 class="ps-4 ms-2 text-uppercase text-xs font-weight-bolder opacity-6">Customer</h6>
                     </li>
-                    <li class="nav-item"><a class="nav-link pbj-sidebar-link" href="#"><i class="fas fa-calendar-plus text-sm me-3 ms-2"></i> Book Court</a></li>
-                    <li class="nav-item"><a class="nav-link pbj-sidebar-link" href="#"><i class="fas fa-receipt text-sm me-3 ms-2"></i> Receipts</a></li>
-                    <li class="nav-item"><a class="nav-link pbj-sidebar-link" href="#"><i class="fas fa-star text-sm me-3 ms-2"></i> Reviews</a></li>
+                    <li class="nav-item">
+                        <a class="nav-link pbj-sidebar-link {{ $moduleActive('book-court') ? 'active' : '' }}" href="{{ route('modules.show', 'book-court') }}">
+                            <i class="fas fa-calendar-plus text-sm me-3 ms-2"></i> Book Court
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link pbj-sidebar-link {{ $moduleActive('receipts') ? 'active' : '' }}" href="{{ route('modules.show', 'receipts') }}">
+                            <i class="fas fa-receipt text-sm me-3 ms-2"></i> Receipts
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link pbj-sidebar-link {{ $moduleActive('reviews') ? 'active' : '' }}" href="{{ route('modules.show', 'reviews') }}">
+                            <i class="fas fa-star text-sm me-3 ms-2"></i> Reviews
+                        </a>
+                    </li>
 
                     <li class="nav-item mt-3">
                         <h6 class="ps-4 ms-2 text-uppercase text-xs font-weight-bolder opacity-6">Account</h6>
