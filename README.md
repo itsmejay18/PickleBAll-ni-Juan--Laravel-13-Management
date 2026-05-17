@@ -1,58 +1,146 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Pickle Ballan ni Juan — Court Reservation & Management System
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A Laravel 13 web app for booking pickleball courts, renting equipment, processing manual GCash
+payments, handling walk-ins, and running staff check-in/out across multiple branches.
 
-## About Laravel
+Read the full product brief in `objectives.txt`.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Stack
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **PHP** 8.3+
+- **Laravel** 13
+- **Frontend**: Blade + Tailwind 3 + Soft UI Dashboard kit + Alpine.js + Vite
+- **Auth**: Laravel Breeze + Spatie Permission
+- **Maps**: Leaflet
+- **DB**: MySQL 8 / MariaDB 10.6+ recommended for production. SQLite is used for the test suite only.
+- **Tests**: Pest 4
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Getting started (local)
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+git clone <repo> pickleball
+cd pickleball
+composer install
+cp .env.example .env
+php artisan key:generate
+# Configure DB_* in .env, then:
+php artisan migrate --seed
+npm install
+npm run build
+php artisan serve
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Default seeded accounts (password: `password`):
 
-## Contributing
+| Role             | Email                    |
+| ---------------- | ------------------------ |
+| Super Admin      | superadmin@example.com   |
+| Admin            | admin@example.com        |
+| Location Manager | manager@example.com      |
+| Staff            | staff@example.com        |
+| End User         | user@example.com         |
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Daily development
 
-## Code of Conduct
+```bash
+composer dev    # runs server + queue worker + vite concurrently
+composer test   # runs Pest test suite
+./vendor/bin/pint  # format PHP files
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## Scheduled jobs
 
-## Security Vulnerabilities
+`routes/console.php` registers four scheduled commands. Run a single dispatcher in production:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```bash
+* * * * * cd /path/to/app && php artisan schedule:run >> /dev/null 2>&1
+```
+
+| Command                          | Cadence            | What it does                                                |
+| -------------------------------- | ------------------ | ----------------------------------------------------------- |
+| `reservations:expire-pending`    | every 10 minutes   | Auto-cancel unpaid reservations past their hold (E10)       |
+| `reservations:mark-no-shows`     | hourly             | Flag confirmed reservations whose end time passed (J8)      |
+| `reports:aggregate-daily`        | daily 00:30        | Build per-location daily revenue/utilisation rows           |
+| `inventory:notify-low-stock`     | daily 07:00        | Notify admins/staff when stock drops to reorder point (D6)  |
+
+## Queue worker
+
+Notifications, mail, and async work go through the `database` queue. Run a worker per box:
+
+```bash
+php artisan queue:work --tries=3 --backoff=10
+```
+
+Use a process supervisor (systemd, supervisord, or Forge "Daemons") to keep it alive.
+
+## Production deployment checklist
+
+The fastest path is to use the included script. From the server, after a fresh `git pull`:
+
+```bash
+bash deploy.sh
+```
+
+This installs prod dependencies, builds assets, runs migrations + role seeder,
+links storage, caches config/routes/views, and restarts the queue worker.
+
+For first-time setup, also do:
+
+1. **App config**: `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://...`, `LOG_LEVEL=warning`.
+2. **Sessions**: `SESSION_ENCRYPT=true`, `SESSION_SECURE_COOKIE=true`, `SESSION_SAME_SITE=lax`.
+3. **Database**: MySQL 8 / MariaDB 10.6+ / PostgreSQL 14+. SQLite is unsafe for concurrent bookings.
+4. **Mail**: switch `MAIL_MAILER` from `log` to `smtp`/`ses`/`postmark` so receipt emails actually send.
+5. **HTTPS**: TLS at the load balancer / web server. `AppServiceProvider::boot()` already calls
+   `URL::forceScheme('https')` for production and proxied requests.
+6. **Security headers**: applied automatically via `App\Http\Middleware\SecurityHeaders`.
+7. **Cron**: install `deploy/crontab.txt` or run `* * * * * cd /var/www/pickleball && php artisan schedule:run`.
+8. **Queue worker**: copy `deploy/supervisor-pickleball.conf` to `/etc/supervisor/conf.d/`.
+9. **Backups**: schedule daily DB + uploads backups (e.g. `spatie/laravel-backup`).
+10. **Monitoring**: wire `/up` to your health checker; consider Sentry for error tracking.
+11. **Payment proof storage**: GCash screenshots are stored on the **private** disk
+    (`storage/app/private/payment-proofs/...`) and served through signed URLs that
+    expire in 30 minutes. No additional config needed unless moving to S3.
+
+## Module map
+
+| Path                       | What it covers                                                  |
+| -------------------------- | --------------------------------------------------------------- |
+| `/dashboard`               | Role-aware metrics, calendar, work queue                        |
+| `/modules/locations`       | Branch CRUD (admin)                                             |
+| `/modules/courts`          | Court CRUD + hide/show/archive (admin)                          |
+| `/modules/equipment`       | Inventory CRUD, stock counts (admin)                            |
+| `/modules/payments`        | GCash proof upload (customer) + review queue (admin/staff)      |
+| `/modules/walk-ins`        | Counter bookings (staff)                                        |
+| `/modules/check-ins`       | Staff arrival flow (I1-I5)                                      |
+| `/modules/check-outs`      | Session close, damage/late charges (I6-I9)                      |
+| `/modules/book-court`      | Customer reservation flow                                       |
+| `/modules/receipts`        | Customer receipt list                                           |
+| `/modules/reviews`         | Customer ratings                                                |
+| `/notifications`           | In-app notification history                                     |
+| `/receipts/{reservation}`  | Printable digital receipt                                       |
+| `/profile`                 | Account info + photo                                            |
+| `/reports/export/{type}`   | CSV export: revenue \| bookings \| cancellations \| no-shows \| equipment |
+| `/payments/{id}/proof`     | Signed-URL download of GCash screenshot (private disk)          |
+
+## Roles & permissions
+
+Five Spatie roles, seeded by `RoleSeeder`:
+
+- `super_admin`, `admin` — full management
+- `location_manager`, `staff` — assigned-branch operations
+- `end_user` — customers
+
+Custom helpers and Spatie middleware (`role`, `permission`, `role_or_permission`) are
+wired in `bootstrap/app.php`.
+
+## Tests
+
+```bash
+php artisan test
+```
+
+The suite uses an in-memory SQLite database. Add new feature tests under `tests/Feature/`.
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+MIT.

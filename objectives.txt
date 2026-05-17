@@ -1,8 +1,8 @@
-PICKLE BALL NI JUAN
+PICKLE BALLAN NI JUAN
 Court Reservation & Management System
 Final System Objectives Document
 Project Overview
-System Name: Pickle Ball ni Juan - Court Reservation & Management System
+System Name: Pickle Ballan ni Juan - Court Reservation & Management System
 
 Platform: Web-based (Laravel PHP Framework)
 
@@ -11,7 +11,7 @@ Target Users: End Users (Customers), Staff, Admin, Super Admin
 Purpose: To provide a complete digital solution for managing pickle ball court reservations, equipment rentals, payment processing (manual GCash confirmation), walk-in bookings, and facility management across multiple locations.
 
 General Objective
-To develop a secure, scalable, and user-friendly Laravel-based reservation management system for Pickle Ball ni Juan that enables customers to book courts and equipment online, provides staff with tools to manage walk-in bookings and customer check-ins, and gives administrators full control over court management, pricing, user accounts, and system reporting — all without requiring complex API integrations for payments.
+To develop a secure, scalable, and user-friendly Laravel-based reservation management system for Pickle Ballan ni Juan that enables customers to book courts and equipment online, provides staff with tools to manage walk-in bookings and customer check-ins, and gives administrators full control over court management, pricing, user accounts, and system reporting — all without requiring complex API integrations for payments.
 
 Specific Objectives
 A. USER MANAGEMENT
@@ -197,7 +197,7 @@ N4	Mobile Responsiveness: Fully functional on smartphones and tablets.
 N5	Browser Support: Chrome, Firefox, Safari, Edge (latest 2 versions).
 N6	Maintainability: Clean, documented code following Laravel best practices.
 SMART Objective (Summary Statement)
-*To develop a Laravel-based reservation system for Pickle Ball ni Juan with mandatory user accounts, multi-location support, real-time court availability calendar, manual GCash payment confirmation (no API), digital receipts, walk-in booking, staff check-in/out, equipment inventory tracking, admin-controlled ratings with audit logs, and comprehensive reporting — to be delivered within 10-12 weeks, reducing manual booking errors to zero and cutting customer check-in time to under 1 minute.*
+*To develop a Laravel-based reservation system for Pickle Ballan ni Juan with mandatory user accounts, multi-location support, real-time court availability calendar, manual GCash payment confirmation (no API), digital receipts, walk-in booking, staff check-in/out, equipment inventory tracking, admin-controlled ratings with audit logs, and comprehensive reporting — to be delivered within 10-12 weeks, reducing manual booking errors to zero and cutting customer check-in time to under 1 minute.*
 
 Out of Scope (Phase 2 or Not Included)
 The following features are NOT included in this initial development:
@@ -228,7 +228,7 @@ text
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  I have reviewed the above objectives for the                       │
-│  Pickle Ball ni Juan - Court Reservation & Management System        │
+│  Pickle Ballan ni Juan - Court Reservation & Management System      │
 │  and approve them for development.                                  │
 │                                                                      │
 │  Client Name: __________________________                            │

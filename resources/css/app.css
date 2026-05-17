@@ -7,6 +7,41 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Soft UI Dashboard uses these percentage/opacity helpers. Tailwind defines
+   classes with the same names later in the cascade, so restore the kit values. */
+.opacity-0 { opacity: 0 !important; }
+.opacity-1 { opacity: 0.1 !important; }
+.opacity-2 { opacity: 0.2 !important; }
+.opacity-3 { opacity: 0.3 !important; }
+.opacity-4 { opacity: 0.4 !important; }
+.opacity-5 { opacity: 0.5 !important; }
+.opacity-6 { opacity: 0.6 !important; }
+.opacity-7 { opacity: 0.7 !important; }
+.opacity-8 { opacity: 0.8 !important; }
+.opacity-9 { opacity: 0.9 !important; }
+.opacity-10 { opacity: 1 !important; }
+
+.w-5 { width: 5% !important; }
+.w-10 { width: 10% !important; }
+.w-15 { width: 15% !important; }
+.w-20 { width: 20% !important; }
+.w-25 { width: 25% !important; }
+.w-30 { width: 30% !important; }
+.w-35 { width: 35% !important; }
+.w-40 { width: 40% !important; }
+.w-45 { width: 45% !important; }
+.w-50 { width: 50% !important; }
+.w-55 { width: 55% !important; }
+.w-60 { width: 60% !important; }
+.w-65 { width: 65% !important; }
+.w-70 { width: 70% !important; }
+.w-75 { width: 75% !important; }
+.w-80 { width: 80% !important; }
+.w-85 { width: 85% !important; }
+.w-90 { width: 90% !important; }
+.w-95 { width: 95% !important; }
+.w-100 { width: 100% !important; }
+
 /* Tailwind's .collapse utility sets visibility: collapse and hides Bootstrap nav collapses. */
 .collapse {
     visibility: visible;
@@ -14,10 +49,78 @@
 
 .navbar-vertical.navbar-expand-xs .navbar-collapse {
     display: block;
+    height: auto !important;
+    overflow: visible !important;
+}
+
+.navbar-vertical.navbar-expand-xs {
+    overflow-y: hidden !important;
+}
+
+#iconNavbarSidenav,
+#iconSidenav {
+    cursor: pointer;
+    pointer-events: auto;
+    position: relative;
+    z-index: 1100;
 }
 
 .pbj-sidebar-link {
     min-height: 42px;
+}
+
+.pbj-brand-mark,
+.pbj-brand-mark-sm {
+    object-fit: cover;
+    border-radius: 0.5rem;
+}
+
+.pbj-brand-mark {
+    width: 48px;
+    height: 48px;
+}
+
+.pbj-brand-mark-sm {
+    width: 42px;
+    height: 42px;
+    max-height: 42px !important;
+}
+
+.sidenav .navbar-brand {
+    min-height: 68px;
+    padding: 1rem 1.25rem;
+}
+
+.sidenav .navbar-brand span {
+    font-size: 1rem;
+    line-height: 1.15;
+    white-space: normal;
+}
+
+.navbar-vertical.navbar-expand-xs .navbar-nav .nav-link {
+    margin: 0 0.85rem;
+    padding-top: 0.66rem;
+    padding-bottom: 0.66rem;
+}
+
+.sidenav .nav-link .icon {
+    width: 38px !important;
+    height: 38px !important;
+    min-width: 38px;
+}
+
+.navbar-vertical.navbar-expand-xs .navbar-nav > .nav-item .icon .ni,
+.sidenav .nav-link i {
+    font-size: 0.95rem !important;
+}
+
+.sidenav .nav-link-text {
+    font-size: 0.96rem;
+}
+
+.sidenav .nav-item h6 {
+    font-size: 0.76rem !important;
+    margin-bottom: 0.45rem;
 }
 
 .pbj-slot {
@@ -45,4 +148,143 @@
 .pbj-slot-maintenance {
     background: #f4f4f5;
     color: #52525b;
+}
+
+/* Readability layer for the Soft UI screens. */
+:root {
+    --pbj-ink: #172033;
+    --pbj-muted: #475569;
+    --pbj-soft: #64748b;
+}
+
+body {
+    color: var(--pbj-ink);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+.main-content .text-secondary,
+.dropdown-menu .text-secondary,
+.sidenav .text-secondary {
+    color: var(--pbj-muted) !important;
+}
+
+.main-content .text-xs,
+.dropdown-menu .text-xs,
+.sidenav .text-xs {
+    font-size: 0.78rem !important;
+    line-height: 1.45;
+}
+
+.main-content .text-xxs,
+.dropdown-menu .text-xxs {
+    font-size: 0.7rem !important;
+    line-height: 1.35;
+}
+
+.main-content .text-sm,
+.dropdown-menu .text-sm,
+.sidenav .text-sm {
+    line-height: 1.45;
+}
+
+.main-content .card p:not(.text-white),
+.main-content .card .form-label,
+.main-content .card td,
+.main-content .card .progress-percentage span {
+    color: var(--pbj-muted);
+}
+
+.main-content .card h5:not(.text-white),
+.main-content .card h6:not(.text-white),
+.main-content .card .text-dark,
+.dropdown-menu h6,
+.sidenav .nav-link-text {
+    color: var(--pbj-ink) !important;
+}
+
+.main-content .table thead th {
+    color: #334155 !important;
+    opacity: 1 !important;
+}
+
+.main-content .badge {
+    letter-spacing: 0;
+}
+
+.text-white.opacity-6,
+.text-white.opacity-7,
+.text-white.opacity-8 {
+    opacity: 0.96 !important;
+}
+
+.pbj-readable-hero.card.card-background:after {
+    background-image: linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(124, 45, 18, 0.88) 58%, rgba(234, 88, 12, 0.78) 100%) !important;
+    opacity: 1 !important;
+    z-index: 1 !important;
+}
+
+.pbj-readable-hero.card.card-background .full-background {
+    z-index: 0 !important;
+}
+
+.pbj-readable-hero.card.card-background .card-body {
+    z-index: 3 !important;
+}
+
+.pbj-readable-hero .text-white {
+    color: #ffffff !important;
+    text-shadow: 0 1px 2px rgba(15, 23, 42, 0.4);
+}
+
+.pbj-readable-hero .pbj-readable-copy,
+.pbj-readable-hero p:not(.text-white) {
+    font-size: 0.95rem;
+    line-height: 1.55;
+}
+
+.pbj-stat-card {
+    min-height: 156px;
+    overflow: hidden;
+}
+
+.pbj-stat-card .mask {
+    opacity: 1 !important;
+}
+
+.pbj-stat-card .card-body {
+    min-height: 156px;
+}
+
+.pbj-stat-card h5,
+.pbj-stat-card .text-white {
+    color: #ffffff !important;
+    text-shadow: 0 1px 2px rgba(15, 23, 42, 0.22);
+}
+
+.pbj-stat-card h5 {
+    line-height: 1.15;
+}
+
+.pbj-stat-card .text-sm {
+    font-size: 0.84rem !important;
+    line-height: 1.38;
+}
+
+.pbj-stat-card .icon-shape {
+    flex: 0 0 auto;
+}
+
+.sidenav .navbar-brand span,
+.sidenav .nav-link.active .nav-link-text {
+    color: var(--pbj-ink) !important;
+}
+
+.sidenav .nav-link-text {
+    font-weight: 600;
+}
+
+.sidenav .nav-item h6 {
+    color: #536179 !important;
+    opacity: 1 !important;
 }

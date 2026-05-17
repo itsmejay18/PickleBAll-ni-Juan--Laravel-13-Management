@@ -64,5 +64,7 @@ class DatabaseSeeder extends Seeder
 
             $user->syncRoles([$userData['role']]);
         }
+
+        $this->call(OperationalDataSeeder::class);
     }
 }

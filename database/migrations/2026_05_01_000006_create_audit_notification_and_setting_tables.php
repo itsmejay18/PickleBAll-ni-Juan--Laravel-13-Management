@@ -73,7 +73,7 @@ return new class extends Migration
         });
 
         DB::table('system_settings')->insert([
-            ['setting_key' => 'system_name', 'setting_value' => 'Pickle Ball ni Juan', 'setting_type' => 'string', 'group_name' => 'general', 'display_name' => 'System Name', 'created_at' => now(), 'updated_at' => now()],
+            ['setting_key' => 'system_name', 'setting_value' => 'Pickle Ballan ni Juan', 'setting_type' => 'string', 'group_name' => 'general', 'display_name' => 'System Name', 'created_at' => now(), 'updated_at' => now()],
             ['setting_key' => 'owner_gcash_number', 'setting_value' => '09123456789', 'setting_type' => 'string', 'group_name' => 'payment', 'display_name' => 'Owner GCash Number', 'created_at' => now(), 'updated_at' => now()],
             ['setting_key' => 'pending_payment_expiry_hours', 'setting_value' => '2', 'setting_type' => 'integer', 'group_name' => 'reservation', 'display_name' => 'Pending Payment Expiry (Hours)', 'created_at' => now(), 'updated_at' => now()],
             ['setting_key' => 'max_booking_advance_days', 'setting_value' => '30', 'setting_type' => 'integer', 'group_name' => 'reservation', 'display_name' => 'Maximum Advance Booking Days', 'created_at' => now(), 'updated_at' => now()],

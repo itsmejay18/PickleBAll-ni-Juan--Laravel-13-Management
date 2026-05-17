@@ -1,64 +1,63 @@
-<section>
-    <header>
-        <h2 class="text-lg font-medium text-gray-900">
-            {{ __('Profile Information') }}
-        </h2>
+<form id="send-verification" method="post" action="{{ route('verification.send') }}">
+    @csrf
+</form>
 
-        <p class="mt-1 text-sm text-gray-600">
-            {{ __("Update your account's email address and mobile number.") }}
-        </p>
-    </header>
+@php($profilePhotoUrl = $user->photo_path ? asset('storage/'.$user->photo_path) : asset('images/branding.png'))
 
-    <form id="send-verification" method="post" action="{{ route('verification.send') }}">
-        @csrf
-    </form>
+<form method="post" action="{{ route('profile.update') }}" enctype="multipart/form-data">
+    @csrf
+    @method('patch')
 
-    <form method="post" action="{{ route('profile.update') }}" class="mt-6 space-y-6">
-        @csrf
-        @method('patch')
+    <div class="d-flex align-items-center gap-3 mb-4">
+        <div class="avatar avatar-xxl bg-white shadow-sm">
+            <img src="{{ $profilePhotoUrl }}" alt="{{ $user->email }}">
+        </div>
+        <div class="flex-grow-1">
+            <label for="photo" class="form-label">Profile picture</label>
+            <input id="photo" name="photo" type="file" class="form-control @error('photo') is-invalid @enderror" accept="image/png,image/jpeg,image/webp">
+            <p class="text-xs text-secondary mb-0 mt-1">JPG, PNG, or WebP up to 2 MB.</p>
+            @error('photo')
+                <div class="invalid-feedback">{{ $message }}</div>
+            @enderror
+        </div>
+    </div>
 
-        <div>
-            <x-input-label for="email" :value="__('Email')" />
-            <x-text-input id="email" name="email" type="email" class="mt-1 block w-full" :value="old('email', $user->email)" required autofocus autocomplete="username" />
-            <x-input-error class="mt-2" :messages="$errors->get('email')" />
-
-            @if ($user instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! $user->hasVerifiedEmail())
-                <div>
-                    <p class="text-sm mt-2 text-gray-800">
-                        {{ __('Your email address is unverified.') }}
-
-                        <button form="send-verification" class="underline text-sm text-gray-600 hover:text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                            {{ __('Click here to re-send the verification email.') }}
-                        </button>
-                    </p>
-
-                    @if (session('status') === 'verification-link-sent')
-                        <p class="mt-2 font-medium text-sm text-green-600">
-                            {{ __('A new verification link has been sent to your email address.') }}
-                        </p>
-                    @endif
-                </div>
-            @endif
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <label for="email" class="form-label">Email</label>
+            <input id="email" name="email" type="email" class="form-control @error('email') is-invalid @enderror" value="{{ old('email', $user->email) }}" required autofocus autocomplete="username">
+            @error('email')
+                <div class="invalid-feedback">{{ $message }}</div>
+            @enderror
         </div>
 
-        <div>
-            <x-input-label for="mobile_number" :value="__('Mobile Number')" />
-            <x-text-input id="mobile_number" name="mobile_number" type="tel" class="mt-1 block w-full" :value="old('mobile_number', $user->mobile_number)" required autocomplete="tel" />
-            <x-input-error class="mt-2" :messages="$errors->get('mobile_number')" />
+        <div class="col-md-6 mb-3">
+            <label for="mobile_number" class="form-label">Mobile Number</label>
+            <input id="mobile_number" name="mobile_number" type="tel" class="form-control @error('mobile_number') is-invalid @enderror" value="{{ old('mobile_number', $user->mobile_number) }}" required autocomplete="tel">
+            @error('mobile_number')
+                <div class="invalid-feedback">{{ $message }}</div>
+            @enderror
+        </div>
+    </div>
+
+    @if ($user instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! $user->hasVerifiedEmail())
+        <div class="alert alert-warning text-white text-sm" role="alert">
+            Your email address is unverified.
+            <button form="send-verification" class="btn btn-link text-white p-0 mb-0 align-baseline">Re-send verification email.</button>
         </div>
 
-        <div class="flex items-center gap-4">
-            <x-primary-button>{{ __('Save') }}</x-primary-button>
+        @if (session('status') === 'verification-link-sent')
+            <div class="alert alert-success text-white text-sm" role="alert">
+                A new verification link has been sent to your email address.
+            </div>
+        @endif
+    @endif
 
-            @if (session('status') === 'profile-updated')
-                <p
-                    x-data="{ show: true }"
-                    x-show="show"
-                    x-transition
-                    x-init="setTimeout(() => show = false, 2000)"
-                    class="text-sm text-gray-600"
-                >{{ __('Saved.') }}</p>
-            @endif
-        </div>
-    </form>
-</section>
+    <div class="d-flex align-items-center gap-3">
+        <button type="submit" class="btn bg-gradient-info mb-0">Save</button>
+
+        @if (session('status') === 'profile-updated')
+            <span class="text-sm text-secondary" x-data="{ show: true }" x-show="show" x-transition x-init="setTimeout(() => show = false, 2000)">Saved.</span>
+        @endif
+    </div>
+</form>

@@ -1,0 +1,2 @@
+# Add this line to the deploy user's crontab (`crontab -e`):
+* * * * * cd /var/www/pickleball && php artisan schedule:run >> /dev/null 2>&1

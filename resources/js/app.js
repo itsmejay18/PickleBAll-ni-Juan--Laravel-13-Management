@@ -10,3 +10,28 @@ import Alpine from 'alpinejs';
 window.Alpine = Alpine;
 
 Alpine.start();
+
+document.addEventListener('DOMContentLoaded', () => {
+    const body = document.body;
+    const sidenav = document.getElementById('sidenav-main');
+    const toggles = [
+        document.getElementById('iconNavbarSidenav'),
+        document.getElementById('iconSidenav'),
+    ].filter(Boolean);
+
+    const toggleSidenav = (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        const isPinned = body.classList.toggle('g-sidenav-pinned');
+
+        if (sidenav) {
+            sidenav.classList.toggle('bg-white', isPinned);
+            sidenav.classList.remove('bg-transparent');
+        }
+    };
+
+    toggles.forEach((toggle) => {
+        toggle.addEventListener('click', toggleSidenav, true);
+    });
+});
