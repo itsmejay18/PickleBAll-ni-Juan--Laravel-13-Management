@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Mail\ReservationReceiptMail;
 use App\Models\Reservation;
+use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\NotificationService;
 use Carbon\Carbon;
@@ -104,6 +105,9 @@ class ModulePageController extends Controller
                     'ei.available_quantity',
                     'ei.reserved_quantity',
                     'ei.total_quantity',
+                    'ei.damaged_quantity',
+                    'ei.lost_quantity',
+                    'ei.under_maintenance_quantity',
                     'ei.equipment_type_id',
                     'et.name',
                     'et.rental_price_per_unit',
@@ -120,8 +124,16 @@ class ModulePageController extends Controller
                 return back()->withInput()->with('error', $equipment->name.' allows up to '.$equipment->max_rental_quantity_per_booking.' per booking.');
             }
 
-            if ($quantity > $equipment->available_quantity) {
-                return back()->withInput()->with('error', $equipment->name.' only has '.$equipment->available_quantity.' available.');
+            $slotAvailable = $this->availableEquipmentQuantityForSlot(
+                (int) $court->location_id,
+                (int) $equipmentTypeId,
+                $date,
+                $startTime,
+                $endTime
+            );
+
+            if ($quantity > $slotAvailable) {
+                return back()->withInput()->with('error', $equipment->name.' only has '.$slotAvailable.' available for the selected slot.');
             }
 
             $subtotal = round($quantity * (float) $equipment->rental_price_per_unit, 2);
@@ -136,6 +148,10 @@ class ModulePageController extends Controller
                 'deposit_charged' => $equipment->requires_deposit ? round($quantity * (float) $equipment->deposit_amount, 2) : 0,
                 'previous_available' => (int) $equipment->available_quantity,
                 'previous_reserved' => (int) $equipment->reserved_quantity,
+                'total_quantity' => (int) $equipment->total_quantity,
+                'damaged_quantity' => (int) ($equipment->damaged_quantity ?? 0),
+                'lost_quantity' => (int) ($equipment->lost_quantity ?? 0),
+                'under_maintenance_quantity' => (int) ($equipment->under_maintenance_quantity ?? 0),
             ];
         }
 
@@ -233,12 +249,20 @@ class ModulePageController extends Controller
 
                     DB::table('reservation_equipment')->insert($reservationEquipment);
 
+                    $damaged = (int) $equipment['damaged_quantity'];
+                    $lost = (int) $equipment['lost_quantity'];
+                    $maintenance = (int) $equipment['under_maintenance_quantity'];
+                    $physicalStock = max(0, (int) $equipment['total_quantity'] - $damaged - $lost - $maintenance);
+
+                    $newAvailable = max(0, min($physicalStock, $equipment['previous_available'] - $equipment['quantity']));
+                    $newReserved = max(0, min($physicalStock, $equipment['previous_reserved'] + $equipment['quantity']));
+
                     DB::table('equipment_inventory')
                         ->where('id', $equipment['inventory_id'])
                         ->lockForUpdate()
                         ->update([
-                            'available_quantity' => $equipment['previous_available'] - $equipment['quantity'],
-                            'reserved_quantity' => $equipment['previous_reserved'] + $equipment['quantity'],
+                            'available_quantity' => $newAvailable,
+                            'reserved_quantity' => $newReserved,
                             'updated_at' => now(),
                         ]);
 
@@ -249,7 +273,7 @@ class ModulePageController extends Controller
                         'transaction_type' => 'check_out',
                         'quantity' => -$equipment['quantity'],
                         'previous_available' => $equipment['previous_available'],
-                        'new_available' => $equipment['previous_available'] - $equipment['quantity'],
+                        'new_available' => $newAvailable,
                         'notes' => 'Reserved during online booking '.$reservationCode.'.',
                         'performed_by' => $user->id,
                         'created_at' => now(),
@@ -277,9 +301,114 @@ class ModulePageController extends Controller
             return back()->withInput()->with('error', $e->getMessage());
         }
 
+
+
         return redirect()
-            ->route('modules.show', 'payments')
-            ->with('status', 'Booking '.$reservationCode.' created. Upload your GCash proof to complete the transaction.');
+            ->route('bookings.pay', $reservationCode)
+            ->with('status', 'Booking '.$reservationCode.' created! Complete your payment below.');
+    }
+
+    public function getPublicAvailability(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $validated = $request->validate([
+            'location_id' => ['required', 'integer', 'exists:locations,id'],
+            'date' => ['required', 'date', 'after_or_equal:today'],
+        ]);
+
+        $locationId = (int) $validated['location_id'];
+        $date = $validated['date'];
+
+        $courts = DB::table('courts')
+            ->where('location_id', $locationId)
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->orderBy('court_number')
+            ->get();
+
+        $hours = [];
+        for ($h = 6; $h < 22; $h++) {
+            $start = sprintf('%02d:00', $h);
+            $end = sprintf('%02d:00', $h + 1);
+            $hours[] = [
+                'start' => $start,
+                'end' => $end,
+                'label' => date('g A', strtotime($start)).' - '.date('g A', strtotime($end)),
+            ];
+        }
+
+        $results = [];
+        foreach ($courts as $court) {
+            $courtAvailability = [];
+            foreach ($hours as $slot) {
+                $isOpen = $this->courtIsOpen($court->id, $date, $slot['start'].':00', $slot['end'].':00');
+                $isBooked = $this->courtIsBooked($court->id, $date, $slot['start'].':00', $slot['end'].':00');
+                $isMaintenance = $this->courtIsUnderMaintenance($court->id, $date, $slot['start'].':00', $slot['end'].':00');
+
+                $available = $isOpen && !$isBooked && !$isMaintenance;
+
+                $courtAvailability[] = [
+                    'start' => $slot['start'],
+                    'end' => $slot['end'],
+                    'label' => $slot['label'],
+                    'available' => $available,
+                    'reason' => !$isOpen ? 'Closed' : ($isMaintenance ? 'Maintenance' : ($isBooked ? 'Booked' : 'Open')),
+                ];
+            }
+
+            $results[] = [
+                'court_id' => $court->id,
+                'court_name' => $court->court_name,
+                'court_number' => $court->court_number,
+                'slots' => $courtAvailability,
+            ];
+        }
+
+        return response()->json([
+            'date' => $date,
+            'location_id' => $locationId,
+            'courts' => $results,
+        ]);
+    }
+
+    public function showPaymentPage(string $reservationCode): View|RedirectResponse
+    {
+        $user = auth()->user();
+
+        $reservation = DB::table('reservations as r')
+            ->join('courts as c', 'c.id', '=', 'r.court_id')
+            ->join('locations as l', 'l.id', '=', 'r.location_id')
+            ->where('r.reservation_code', $reservationCode)
+            ->where('r.user_id', $user->id)
+            ->whereNull('r.deleted_at')
+            ->first([
+                'r.id',
+                'r.reservation_code',
+                'r.reservation_date',
+                'r.start_time',
+                'r.end_time',
+                'r.grand_total',
+                'r.status',
+                'r.payment_status',
+                'c.court_number',
+                'c.court_name',
+                'l.name as location_name',
+            ]);
+
+        if (! $reservation) {
+            return redirect()->route('modules.show', 'book-court')
+                ->with('error', 'Reservation not found.');
+        }
+
+        // If already paid or pending verification, go to receipts
+        if (in_array($reservation->payment_status, ['paid', 'pending_verification'], true)) {
+            return redirect()->route('modules.show', 'receipts')
+                ->with('status', 'Your payment is already submitted or confirmed.');
+        }
+
+        $ownerGcashNumber = $this->ownerGcashNumber();
+        $ownerGcashQr = DB::table('system_settings')->where('setting_key', 'owner_gcash_qr_path')->value('setting_value') ?: null;
+
+        return view('booking.pay', compact('reservation', 'ownerGcashNumber', 'ownerGcashQr'));
     }
 
     public function storeCourt(Request $request): RedirectResponse
@@ -554,7 +683,9 @@ class ModulePageController extends Controller
         $path = $request->file('gcash_screenshot')->store('payment-proofs', 'local');
         $paymentReference = 'GCASH-'.$reservation->reservation_code;
 
-        DB::transaction(function () use ($validated, $reservation, $user, $path, $paymentReference) {
+        $paymentId = null;
+
+        DB::transaction(function () use ($validated, $reservation, $user, $path, $paymentReference, &$paymentId) {
             DB::table('payments')->updateOrInsert(
                 ['reservation_id' => $reservation->id, 'payment_reference' => $paymentReference],
                 [
@@ -621,6 +752,18 @@ class ModulePageController extends Controller
                 'gcash_reference_number' => $validated['gcash_reference_number'],
             ]);
         });
+
+        // Trigger immediate notification to staff and admins
+        app(NotificationService::class)->notifyStaffAndAdmins(
+            'New Payment Proof Uploaded',
+            "Booking {$reservation->reservation_code} requires verification. Reference number: {$validated['gcash_reference_number']}.",
+            Reservation::find($reservation->id),
+            [
+                'payment_id' => $paymentId,
+                'reference_number' => $validated['gcash_reference_number'],
+                'amount' => $reservation->grand_total,
+            ]
+        );
 
         return redirect()
             ->route('modules.show', 'payments')
@@ -754,6 +897,34 @@ class ModulePageController extends Controller
         return redirect()
             ->route('modules.show', 'payments')
             ->with('status', 'Payment rejected. Customer can upload a new screenshot.');
+    }
+
+    public function updateGcashSettings(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        abort_unless($user && $user->hasAnyRole([User::ROLE_SUPER_ADMIN, User::ROLE_ADMIN]), 403);
+
+        $validated = $request->validate([
+            'owner_gcash_number' => ['required', 'string', 'max:20'],
+            'owner_gcash_qr' => ['nullable', 'image', 'mimes:png,jpg,jpeg,webp', 'max:2048'],
+        ]);
+
+        SystemSetting::set('owner_gcash_number', $validated['owner_gcash_number']);
+
+        if ($request->hasFile('owner_gcash_qr')) {
+            $path = $request->file('owner_gcash_qr')->store('uploads', 'public');
+            $url = Storage::url($path);
+            SystemSetting::set('owner_gcash_qr_path', $url);
+        }
+
+        $this->audit('settings.gcash.updated', 'system_settings', null, $user, [
+            'owner_gcash_number' => $validated['owner_gcash_number'],
+            'owner_gcash_qr_uploaded' => $request->hasFile('owner_gcash_qr'),
+        ]);
+
+        return redirect()
+            ->route('modules.show', 'payments')
+            ->with('status', 'GCash settings updated successfully.');
     }
 
     /**
@@ -950,22 +1121,22 @@ class ModulePageController extends Controller
                 ],
             ],
             'receipts' => [
-                'title' => 'Receipts',
+                'title' => 'Book History',
                 'eyebrow' => 'Customer Module',
-                'description' => 'View confirmed digital receipts for court reservations, equipment rentals, and payment details.',
-                'icon' => 'fa-receipt',
+                'description' => 'View your approved court bookings, receipts, and payment details.',
+                'icon' => 'fa-history',
                 'objectives' => 'G1-G7, N6',
                 'owner' => 'End User, Staff',
                 'status' => 'Planned',
                 'cards' => [
-                    ['title' => 'Receipt Details', 'text' => 'Reservation ID, customer, court, date, time, and amounts.', 'icon' => 'fa-file-invoice'],
+                    ['title' => 'Paid bookings', 'text' => 'Approved and confirmed bookings.', 'icon' => 'fa-check-circle'],
                     ['title' => 'GCash Reference', 'text' => 'Show payment method and reference number.', 'icon' => 'fa-wallet'],
-                    ['title' => 'Access Anytime', 'text' => 'Receipts remain available in the user dashboard.', 'icon' => 'fa-clock'],
+                    ['title' => 'Access Anytime', 'text' => 'Bookings history remains available for review.', 'icon' => 'fa-clock'],
                 ],
                 'rows' => [
-                    ['feature' => 'Digital receipt generation', 'objective' => 'G1-G2', 'note' => 'Receipt created after payment confirmation.'],
-                    ['feature' => 'Dashboard access', 'objective' => 'G3, N6', 'note' => 'Users can view receipts anytime.'],
-                    ['feature' => 'Email and staff resend', 'objective' => 'G4-G7', 'note' => 'Email, screenshot, resend, and check-in display.'],
+                    ['feature' => 'Book History details', 'objective' => 'G1-G2', 'note' => 'Bookings are stored here after they are approved.'],
+                    ['feature' => 'Dashboard access', 'objective' => 'G3, N6', 'note' => 'Users can view approved bookings anytime.'],
+                    ['feature' => 'Receipt lookup', 'objective' => 'G4-G7', 'note' => 'View fully detailed digital invoice receipts.'],
                 ],
             ],
             'reviews' => [
@@ -1204,6 +1375,7 @@ class ModulePageController extends Controller
         $today = now()->toDateString();
         $canReview = $this->canReviewPayments($user);
         $ownerGcashNumber = DB::table('system_settings')->where('setting_key', 'owner_gcash_number')->value('setting_value') ?: '09123456789';
+        $ownerGcashQr = DB::table('system_settings')->where('setting_key', 'owner_gcash_qr_path')->value('setting_value') ?: null;
         $base = $this->scopeByUser(
             DB::table('payments as p')
                 ->join('reservations as r', 'r.id', '=', 'p.reservation_id')
@@ -1236,6 +1408,7 @@ class ModulePageController extends Controller
 
         return [
             'ownerGcashNumber' => $ownerGcashNumber,
+            'ownerGcashQr' => $ownerGcashQr,
             'canReviewPayments' => $canReview,
             'paymentUploads' => $uploadReservations,
             'paymentReviews' => $reviewPayments,
@@ -1764,8 +1937,9 @@ class ModulePageController extends Controller
 
         $rows = (clone $base)
             ->orderByDesc('p.created_at')
-            ->limit(8)
+            ->limit(100)
             ->get([
+                'r.id as reservation_id',
                 'p.payment_reference',
                 'p.amount',
                 'p.payment_method',
@@ -1785,7 +1959,7 @@ class ModulePageController extends Controller
 
         return [
             'cards' => [
-                $this->card('Paid receipts', (string) (clone $base)->where('p.status', 'verified')->count(), 'Verified receipts ready to view.', 'fa-file-invoice'),
+                $this->card('Paid bookings', (string) (clone $base)->where('p.status', 'verified')->count(), 'Confirmed bookings in history.', 'fa-check-circle'),
                 $this->card('Paid total', $this->money((clone $base)->where('p.status', 'verified')->sum('p.amount')), 'Total verified payment amount.', 'fa-wallet'),
                 $this->card('GCash refs', (string) (clone $base)->where('p.payment_method', 'gcash')->count(), 'Receipts with GCash reference numbers.', 'fa-mobile-alt'),
             ],
@@ -1802,6 +1976,22 @@ class ModulePageController extends Controller
                     $this->statusColor($payment->status),
                     [$owner],
                 );
+            })->all(),
+            'receiptsList' => $rows->map(function ($payment) {
+                $customer = trim(($payment->first_name ?? '').' '.($payment->last_name ?? '')) ?: $payment->email;
+                return [
+                    'reservation_id' => $payment->reservation_id,
+                    'reservation_code' => $payment->reservation_code,
+                    'payment_reference' => $payment->payment_reference,
+                    'customer' => $customer,
+                    'photo_url' => $this->profilePhotoUrl($payment->photo_path),
+                    'court' => $payment->location_name.' Court '.$payment->court_number,
+                    'schedule' => $payment->reservation_date.' '.$this->timeRange($payment->start_time, $payment->end_time),
+                    'amount' => $this->money($payment->amount),
+                    'status' => ucfirst($payment->status),
+                    'color' => $this->statusColor($payment->status),
+                    'reference' => $payment->gcash_reference_number ?: 'cash',
+                ];
             })->all(),
         ];
     }
@@ -2122,7 +2312,7 @@ class ModulePageController extends Controller
                 'et.rental_price_per_unit',
                 'et.deposit_amount',
                 'et.max_rental_quantity_per_booking',
-                DB::raw('COALESCE(SUM(ei.available_quantity), 0) as available_quantity'),
+                DB::raw('COALESCE(SUM(ei.total_quantity - COALESCE(ei.damaged_quantity, 0) - COALESCE(ei.lost_quantity, 0) - COALESCE(ei.under_maintenance_quantity, 0)), 0) as available_quantity'),
             ])
             ->map(fn ($item) => [
                 'id' => $item->id,
@@ -2374,5 +2564,35 @@ class ModulePageController extends Controller
             $paymentStatus === 'paid' && $status === 'confirmed' => 'Confirmed and paid',
             default => ucfirst(str_replace('_', ' ', $status)),
         };
+    }
+
+    private function availableEquipmentQuantityForSlot(int $locationId, int $equipmentTypeId, string $date, string $startTime, string $endTime): int
+    {
+        $inventory = DB::table('equipment_inventory')
+            ->where('location_id', $locationId)
+            ->where('equipment_type_id', $equipmentTypeId)
+            ->first();
+
+        if (! $inventory) {
+            return 0;
+        }
+
+        $damaged = (int) ($inventory->damaged_quantity ?? 0);
+        $lost = (int) ($inventory->lost_quantity ?? 0);
+        $maintenance = (int) ($inventory->under_maintenance_quantity ?? 0);
+        $physicalStock = (int) $inventory->total_quantity - $damaged - $lost - $maintenance;
+
+        $alreadyRented = DB::table('reservation_equipment as re')
+            ->join('reservations as r', 'r.id', '=', 're.reservation_id')
+            ->where('r.location_id', $locationId)
+            ->where('re.equipment_type_id', $equipmentTypeId)
+            ->where('r.reservation_date', $date)
+            ->whereNull('r.deleted_at')
+            ->whereNotIn('r.status', ['cancelled', 'no_show', 'refunded'])
+            ->where('r.start_time', '<', $endTime)
+            ->where('r.end_time', '>', $startTime)
+            ->sum('re.quantity');
+
+        return max(0, $physicalStock - (int) $alreadyRented);
     }
 }

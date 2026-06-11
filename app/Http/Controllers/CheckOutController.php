@@ -19,8 +19,7 @@ class CheckOutController extends Controller
         private readonly AuditService $audit,
         private readonly InventoryService $inventory,
         private readonly NotificationService $notifications,
-    ) {
-    }
+    ) {}
 
     public function store(Request $request, Reservation $reservation): RedirectResponse
     {

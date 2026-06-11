@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\NotificationLog;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -9,9 +10,7 @@ use Illuminate\Http\Request;
 
 class NotificationController extends Controller
 {
-    public function __construct(private readonly NotificationService $notifications)
-    {
-    }
+    public function __construct(private readonly NotificationService $notifications) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -36,7 +35,7 @@ class NotificationController extends Controller
     {
         $user = $request->user();
         $perPage = 20;
-        $items = \App\Models\NotificationLog::query()
+        $items = NotificationLog::query()
             ->where('user_id', $user->id)
             ->where('notification_type', 'in_app')
             ->orderByDesc('created_at')

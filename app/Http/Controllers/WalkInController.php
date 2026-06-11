@@ -200,15 +200,29 @@ class WalkInController extends Controller
 
     private function resolveOrCreateCustomer(array $data, bool $createAccount): User
     {
-        $existing = User::query()->where('mobile_number', $data['customer_mobile'])->first();
+        // C4 fix: only reuse an existing account if it's a guest/walk-in account
+        // (i.e. email ends with @walkins.local). Never silently attach a booking
+        // to a registered customer's account just because the mobile matches.
+        $existing = User::query()
+            ->where('mobile_number', $data['customer_mobile'])
+            ->where(function ($q) {
+                $q->where('email', 'like', '%@walkins.local');
+            })
+            ->first();
 
         if ($existing) {
             return $existing;
         }
 
         if (! $createAccount) {
-            // Ephemeral guest user with a deterministic mobile-derived email
-            $email = 'walkin+'.preg_replace('/\D+/', '', $data['customer_mobile']).'@walkins.local';
+            // W11 fix: use a unique suffix (mobile digits + random) to avoid collisions
+            $digits = preg_replace('/\D+/', '', $data['customer_mobile']);
+            $email = 'walkin+'.$digits.'@walkins.local';
+
+            // If that email already exists for a different mobile, append a short hash
+            if (User::query()->where('email', $email)->where('mobile_number', '!=', $data['customer_mobile'])->exists()) {
+                $email = 'walkin+'.$digits.'.'.substr(md5($data['customer_mobile']), 0, 4).'@walkins.local';
+            }
 
             return User::query()->withTrashed()->updateOrCreate(
                 ['email' => $email],
@@ -223,7 +237,14 @@ class WalkInController extends Controller
             )->fresh();
         }
 
-        $generatedEmail = preg_replace('/\D+/', '', $data['customer_mobile']).'@walkins.local';
+        // W11 fix: same collision-safe email for account creation path
+        $digits = preg_replace('/\D+/', '', $data['customer_mobile']);
+        $generatedEmail = $digits.'@walkins.local';
+
+        if (User::query()->where('email', $generatedEmail)->where('mobile_number', '!=', $data['customer_mobile'])->exists()) {
+            $generatedEmail = $digits.'.'.substr(md5($data['customer_mobile']), 0, 4).'@walkins.local';
+        }
+
         $user = User::query()->create([
             'email' => $generatedEmail,
             'mobile_number' => $data['customer_mobile'],

@@ -16,8 +16,7 @@ class CheckInController extends Controller
     public function __construct(
         private readonly AuditService $audit,
         private readonly NotificationService $notifications,
-    ) {
-    }
+    ) {}
 
     public function store(Request $request, Reservation $reservation): RedirectResponse
     {
@@ -29,8 +28,9 @@ class CheckInController extends Controller
             return back()->with('error', 'Payment must be confirmed before check-in.');
         }
 
-        if (! in_array($reservation->status, ['confirmed', 'pending_payment', 'payment_verification'], true)) {
-            return back()->with('error', 'Reservation cannot be checked in (status: '.$reservation->status.').');
+        // W2 fix: only allow check-in on truly confirmed reservations
+        if ($reservation->status !== 'confirmed') {
+            return back()->with('error', 'Reservation cannot be checked in (status: '.$reservation->status.'). Only confirmed reservations can be checked in.');
         }
 
         if ($reservation->checkInLog()->exists()) {

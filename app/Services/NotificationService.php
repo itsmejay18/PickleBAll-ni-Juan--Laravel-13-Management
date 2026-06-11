@@ -7,7 +7,6 @@ use App\Models\Reservation;
 use App\Models\StaffProfile;
 use App\Models\User;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 class NotificationService
 {
@@ -74,6 +73,61 @@ class NotificationService
     }
 
     /**
+     * Notify all admins globally and location-scoped staff/managers.
+     */
+    public function notifyStaffAndAdmins(
+        string $subject,
+        ?string $message = null,
+        ?Reservation $reservation = null,
+        array $metadata = []
+    ): void {
+        // Query existing roles in DB to prevent exceptions in unseeded tests
+        $adminRoleNames = [User::ROLE_SUPER_ADMIN, User::ROLE_ADMIN];
+        $existingAdminRoles = \Illuminate\Support\Facades\DB::table('roles')
+            ->whereIn('name', $adminRoleNames)
+            ->pluck('name')
+            ->toArray();
+
+        $admins = collect();
+        if (!empty($existingAdminRoles)) {
+            $admins = User::query()
+                ->role($existingAdminRoles)
+                ->get();
+        }
+
+        // 2. Get location staff if location_id is available
+        $staff = collect();
+        $staffRoleNames = [User::ROLE_LOCATION_MANAGER, User::ROLE_STAFF];
+        $existingStaffRoles = \Illuminate\Support\Facades\DB::table('roles')
+            ->whereIn('name', $staffRoleNames)
+            ->pluck('name')
+            ->toArray();
+
+        if ($reservation && $reservation->location_id && !empty($existingStaffRoles)) {
+            $staffIds = StaffProfile::query()
+                ->where('assigned_location_id', $reservation->location_id)
+                ->pluck('user_id');
+
+            $staff = User::query()
+                ->whereIn('id', $staffIds)
+                ->role($existingStaffRoles)
+                ->get();
+        }
+
+        // Merge and unique by ID
+        $recipients = $admins->concat($staff)->unique('id');
+
+        foreach ($recipients as $recipient) {
+            $isAdmin = false;
+            if (!empty($existingAdminRoles)) {
+                $isAdmin = $recipient->hasAnyRole($existingAdminRoles);
+            }
+            $channel = $isAdmin ? 'admin' : 'staff';
+            $this->notify($recipient, $channel, $subject, $message, $reservation, $metadata);
+        }
+    }
+
+    /**
      * Recent notifications for the bell dropdown.
      *
      * @return Collection<int, NotificationLog>
@@ -83,6 +137,22 @@ class NotificationService
         return NotificationLog::query()
             ->where('user_id', $user->id)
             ->where('notification_type', 'in_app')
+            ->orderByDesc('created_at')
+            ->limit($limit)
+            ->get();
+    }
+
+    /**
+     * Recent unread notifications for the bell dropdown.
+     *
+     * @return Collection<int, NotificationLog>
+     */
+    public function unreadRecent(User $user, int $limit = 8): Collection
+    {
+        return NotificationLog::query()
+            ->where('user_id', $user->id)
+            ->where('notification_type', 'in_app')
+            ->whereNull('read_at')
             ->orderByDesc('created_at')
             ->limit($limit)
             ->get();

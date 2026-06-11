@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Court;
 use App\Models\CourtPricingRule;
-use App\Models\Location;
 use App\Models\User;
 use App\Services\AuditService;
 use Illuminate\Http\RedirectResponse;
@@ -13,9 +12,7 @@ use Illuminate\Support\Facades\DB;
 
 class CourtController extends Controller
 {
-    public function __construct(private readonly AuditService $audit)
-    {
-    }
+    public function __construct(private readonly AuditService $audit) {}
 
     public function update(Request $request, Court $court): RedirectResponse
     {
@@ -93,6 +90,20 @@ class CourtController extends Controller
     public function toggle(Request $request, Court $court): RedirectResponse
     {
         $this->authorizeManage($request);
+
+        // I7 fix: warn if deactivating a court with future confirmed bookings
+        if ($court->is_active) {
+            $hasFutureBookings = DB::table('reservations')
+                ->where('court_id', $court->id)
+                ->whereNull('deleted_at')
+                ->where('reservation_date', '>=', now()->toDateString())
+                ->whereNotIn('status', ['cancelled', 'no_show', 'refunded', 'completed'])
+                ->exists();
+
+            if ($hasFutureBookings) {
+                return back()->with('error', 'Court has upcoming bookings. Cancel or move them before deactivating.');
+            }
+        }
 
         $court->update(['is_active' => ! $court->is_active]);
 

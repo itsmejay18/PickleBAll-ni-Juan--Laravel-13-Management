@@ -7,12 +7,12 @@ use App\Models\User;
 use App\Services\AuditService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class LocationController extends Controller
 {
-    public function __construct(private readonly AuditService $audit)
-    {
-    }
+    public function __construct(private readonly AuditService $audit) {}
 
     public function store(Request $request): RedirectResponse
     {
@@ -64,6 +64,18 @@ class LocationController extends Controller
     {
         $this->authorizeManage($request);
 
+        // I7 fix: block deletion if location has active future reservations
+        $hasFutureBookings = DB::table('reservations')
+            ->where('location_id', $location->id)
+            ->whereNull('deleted_at')
+            ->where('reservation_date', '>=', now()->toDateString())
+            ->whereNotIn('status', ['cancelled', 'no_show', 'refunded', 'completed'])
+            ->exists();
+
+        if ($hasFutureBookings) {
+            return back()->with('error', 'Location has upcoming bookings. Cancel or move them before archiving.');
+        }
+
         $location->delete();
         $this->audit->log('location.deleted', 'locations', $location->id, $request->user(), [
             'name' => $location->name,
@@ -103,7 +115,7 @@ class LocationController extends Controller
 
     private function uniqueSlug(string $name): string
     {
-        $base = \Illuminate\Support\Str::slug($name);
+        $base = Str::slug($name);
         $slug = $base;
         $i = 1;
 

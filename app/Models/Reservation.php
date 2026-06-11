@@ -26,6 +26,8 @@ class Reservation extends Model
         'is_active' => 'boolean',
         'expires_at' => 'datetime',
         'confirmed_at' => 'datetime',
+        'reschedule_locked' => 'boolean',
+        'reschedule_locked_at' => 'datetime',
     ];
 
     public function user(): BelongsTo
@@ -71,5 +73,10 @@ class Reservation extends Model
     public function cancellationLog(): HasOne
     {
         return $this->hasOne(CancellationLog::class);
+    }
+
+    public function rescheduleLockedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reschedule_locked_by');
     }
 }

@@ -14,8 +14,7 @@ class RatingController extends Controller
     public function __construct(
         private readonly AuditService $audit,
         private readonly NotificationService $notifications,
-    ) {
-    }
+    ) {}
 
     public function store(Request $request, Reservation $reservation): RedirectResponse
     {

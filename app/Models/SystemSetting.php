@@ -16,7 +16,8 @@ class SystemSetting extends Model
 
     public static function value(string $key, mixed $default = null): mixed
     {
-        return Cache::remember('system_setting:'.$key, 60, function () use ($key, $default) {
+        // I6 fix: increase TTL to 3600s (1 hour) — Cache::forget() in set() handles invalidation
+        return Cache::remember('system_setting:'.$key, 3600, function () use ($key, $default) {
             $row = static::query()->where('setting_key', $key)->first();
 
             if (! $row) {

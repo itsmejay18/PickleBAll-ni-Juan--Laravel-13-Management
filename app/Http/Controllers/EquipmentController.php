@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\EquipmentInventory;
-use App\Models\EquipmentType;
 use App\Models\InventoryTransaction;
 use App\Models\User;
 use App\Services\AuditService;
@@ -13,9 +12,7 @@ use Illuminate\Support\Facades\DB;
 
 class EquipmentController extends Controller
 {
-    public function __construct(private readonly AuditService $audit)
-    {
-    }
+    public function __construct(private readonly AuditService $audit) {}
 
     public function update(Request $request, EquipmentInventory $inventory): RedirectResponse
     {

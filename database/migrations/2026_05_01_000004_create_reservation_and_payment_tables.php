@@ -151,7 +151,7 @@ return new class extends Migration
             $table->foreignId('location_id')->constrained()->cascadeOnDelete();
             $table->foreignId('equipment_type_id')->constrained()->restrictOnDelete();
             $table->foreignId('reservation_id')->nullable()->constrained()->nullOnDelete();
-            $table->enum('transaction_type', ['check_out', 'check_in', 'damaged', 'lost', 'maintenance', 'restock', 'count_adjustment']);
+            $table->enum('transaction_type', ['check_out', 'check_in', 'damaged', 'lost', 'maintenance', 'restock', 'count_adjustment', 'reservation_released']);
             $table->integer('quantity');
             $table->integer('previous_available');
             $table->integer('new_available');

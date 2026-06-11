@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\EquipmentInventory;
 use App\Services\NotificationService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 
 class NotifyLowStock extends Command
 {
@@ -25,6 +26,12 @@ class NotifyLowStock extends Command
                 continue;
             }
 
+            // I5 fix: deduplicate — only notify once per 24 hours per item+location
+            $cacheKey = 'low_stock_notified:'.$item->location_id.':'.$item->equipment_type_id;
+            if (Cache::has($cacheKey)) {
+                continue;
+            }
+
             $subject = 'Low stock: '.$item->equipmentType->name.' at '.$item->location->name;
             $message = 'Available '.$item->available_quantity.' / reorder point '.$item->reorder_point.'.';
 
@@ -35,6 +42,9 @@ class NotifyLowStock extends Command
             $notifications->notifyLocationStaff($item->location_id, $subject, $message, null, [
                 'equipment_type_id' => $item->equipment_type_id,
             ]);
+
+            // Mark as notified for 24 hours
+            Cache::put($cacheKey, true, now()->addHours(24));
 
             $count++;
         }

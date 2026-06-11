@@ -20,35 +20,41 @@ class AggregateDailyReports extends Command
         $locations = DB::table('locations')->where('is_active', true)->whereNull('deleted_at')->pluck('id');
 
         foreach ($locations as $locationId) {
-            $reservations = DB::table('reservations')
+            // W9 fix: use SQL aggregates instead of loading all rows into memory
+            $counts = DB::table('reservations')
                 ->where('location_id', $locationId)
                 ->where('reservation_date', $dateStr)
                 ->whereNull('deleted_at')
-                ->get();
+                ->selectRaw("
+                    COUNT(*) as total_reservations,
+                    SUM(CASE WHEN reservation_type = 'online' THEN 1 ELSE 0 END) as online,
+                    SUM(CASE WHEN reservation_type = 'walk_in' THEN 1 ELSE 0 END) as walkin,
+                    SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancellations,
+                    SUM(CASE WHEN status = 'no_show' THEN 1 ELSE 0 END) as no_shows
+                ")
+                ->first();
 
-            $totalReservations = $reservations->count();
-            $online = $reservations->where('reservation_type', 'online')->count();
-            $walkin = $reservations->where('reservation_type', 'walk_in')->count();
-            $cancellations = $reservations->where('status', 'cancelled')->count();
-            $noShows = $reservations->where('status', 'no_show')->count();
-
-            $verifiedPayments = DB::table('payments as p')
+            $revenueData = DB::table('payments as p')
                 ->join('reservations as r', 'r.id', '=', 'p.reservation_id')
                 ->where('r.location_id', $locationId)
                 ->where('r.reservation_date', $dateStr)
                 ->where('p.status', 'verified')
                 ->whereNull('r.deleted_at')
-                ->select('p.amount', 'p.payment_method')
-                ->get();
+                ->selectRaw("
+                    SUM(p.amount) as revenue,
+                    SUM(CASE WHEN p.payment_method = 'gcash' THEN p.amount ELSE 0 END) as gcash,
+                    SUM(CASE WHEN p.payment_method = 'cash' THEN p.amount ELSE 0 END) as cash
+                ")
+                ->first();
 
-            $revenue = $verifiedPayments->sum('amount');
-            $gcash = $verifiedPayments->where('payment_method', 'gcash')->sum('amount');
-            $cash = $verifiedPayments->where('payment_method', 'cash')->sum('amount');
+            $rating = (float) DB::table('ratings as rt')
+                ->join('reservations as r', 'r.id', '=', 'rt.reservation_id')
+                ->where('r.location_id', $locationId)
+                ->where('r.reservation_date', $dateStr)
+                ->whereNull('r.deleted_at')
+                ->avg('rt.rating_score');
 
-            $rating = (float) DB::table('ratings')
-                ->whereIn('reservation_id', $reservations->pluck('id'))
-                ->avg('rating_score');
-
+            // I12 fix: peak hour is the start_time with the most bookings; end = start + 1 hour
             $peakHour = DB::table('reservations')
                 ->where('location_id', $locationId)
                 ->where('reservation_date', $dateStr)
@@ -56,7 +62,7 @@ class AggregateDailyReports extends Command
                 ->groupBy('start_time')
                 ->orderByRaw('COUNT(*) DESC')
                 ->limit(1)
-                ->select('start_time', 'end_time')
+                ->selectRaw("start_time, TIME(ADDTIME(start_time, '01:00:00')) as peak_end")
                 ->first();
 
             $courtHours = DB::table('court_schedules as cs')
@@ -68,26 +74,31 @@ class AggregateDailyReports extends Command
                 ->get()
                 ->sum(fn ($s) => max(0, (strtotime($s->close_time) - strtotime($s->open_time)) / 3600));
 
-            $bookedHours = $reservations->whereIn('status', ['confirmed', 'checked_in', 'ongoing', 'completed'])->sum(function ($r) {
-                return max(0, (strtotime($r->end_time) - strtotime($r->start_time)) / 3600);
-            });
+            // Booked hours via SQL sum
+            $bookedHours = (float) DB::table('reservations')
+                ->where('location_id', $locationId)
+                ->where('reservation_date', $dateStr)
+                ->whereNull('deleted_at')
+                ->whereIn('status', ['confirmed', 'checked_in', 'ongoing', 'completed'])
+                ->selectRaw('SUM((UNIX_TIMESTAMP(end_time) - UNIX_TIMESTAMP(start_time)) / 3600) as hours')
+                ->value('hours');
 
             $utilisation = $courtHours > 0 ? round(($bookedHours / $courtHours) * 100, 2) : null;
 
             DB::table('daily_reports_aggregates')->updateOrInsert(
                 ['report_date' => $dateStr, 'location_id' => $locationId],
                 [
-                    'total_reservations' => $totalReservations,
-                    'total_online_reservations' => $online,
-                    'total_walkin_reservations' => $walkin,
-                    'total_cancellations' => $cancellations,
-                    'total_no_shows' => $noShows,
-                    'total_revenue' => $revenue,
-                    'total_gcash_revenue' => $gcash,
-                    'total_cash_revenue' => $cash,
+                    'total_reservations' => $counts->total_reservations ?? 0,
+                    'total_online_reservations' => $counts->online ?? 0,
+                    'total_walkin_reservations' => $counts->walkin ?? 0,
+                    'total_cancellations' => $counts->cancellations ?? 0,
+                    'total_no_shows' => $counts->no_shows ?? 0,
+                    'total_revenue' => $revenueData->revenue ?? 0,
+                    'total_gcash_revenue' => $revenueData->gcash ?? 0,
+                    'total_cash_revenue' => $revenueData->cash ?? 0,
                     'average_rating' => $rating ?: null,
                     'peak_hour_start' => $peakHour?->start_time,
-                    'peak_hour_end' => $peakHour?->end_time,
+                    'peak_hour_end' => $peakHour?->peak_end,
                     'utilization_rate' => $utilisation,
                     'updated_at' => now(),
                     'created_at' => now(),

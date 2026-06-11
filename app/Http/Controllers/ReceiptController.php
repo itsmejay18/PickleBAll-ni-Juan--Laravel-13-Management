@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\EndUserProfile;
 use App\Models\Reservation;
 use App\Models\StaffProfile;
 use App\Models\User;
@@ -28,12 +29,12 @@ class ReceiptController extends Controller
             'court.location',
             'location',
             'equipment.equipmentType',
-            'payments' => fn ($q) => $q->whereIn('status', ['verified', 'refunded'])->orderBy('id'),
+            'payments' => fn ($q) => $q->orderBy('id'),
         ]);
 
         return view('receipts.show', [
             'reservation' => $reservation,
-            'profile' => \App\Models\EndUserProfile::query()->where('user_id', $reservation->user_id)->first(),
+            'profile' => EndUserProfile::query()->where('user_id', $reservation->user_id)->first(),
         ]);
     }
 }

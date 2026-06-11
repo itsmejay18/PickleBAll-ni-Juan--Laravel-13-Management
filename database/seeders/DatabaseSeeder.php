@@ -50,7 +50,7 @@ class DatabaseSeeder extends Seeder
             $user = User::withTrashed()
                 ->where('email', $userData['email'])
                 ->orWhere('mobile_number', $userData['mobile_number'])
-                ->first() ?? new User();
+                ->first() ?? new User;
 
             $user->forceFill([
                 'email' => $userData['email'],

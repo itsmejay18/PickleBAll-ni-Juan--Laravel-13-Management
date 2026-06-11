@@ -1,9 +1,13 @@
 <?php
 
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use Illuminate\Http\Middleware\TrustProxies;
+use Spatie\Permission\Middleware\PermissionMiddleware;
+use Spatie\Permission\Middleware\RoleMiddleware;
+use Spatie\Permission\Middleware\RoleOrPermissionMiddleware;
+use Symfony\Component\HttpFoundation\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -12,24 +16,26 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Trust load balancer headers (Forge, Cloudflare, etc.).
-        $middleware->trustProxies(at: '*', headers:
-            \Symfony\Component\HttpFoundation\Request::HEADER_X_FORWARDED_FOR
-            | \Symfony\Component\HttpFoundation\Request::HEADER_X_FORWARDED_HOST
-            | \Symfony\Component\HttpFoundation\Request::HEADER_X_FORWARDED_PORT
-            | \Symfony\Component\HttpFoundation\Request::HEADER_X_FORWARDED_PROTO
+        // W7 fix: read TRUSTED_PROXIES from $_ENV directly (safe at bootstrap time).
+        // Set TRUSTED_PROXIES in your .env to your actual load balancer IPs in production.
+        // Defaults to '*' for local/testing convenience.
+        $trustedProxies = $_ENV['TRUSTED_PROXIES'] ?? '*';
+        $middleware->trustProxies(at: $trustedProxies, headers: Request::HEADER_X_FORWARDED_FOR
+            | Request::HEADER_X_FORWARDED_HOST
+            | Request::HEADER_X_FORWARDED_PORT
+            | Request::HEADER_X_FORWARDED_PROTO
         );
 
         // Apply baseline security headers and force HTTPS in production.
         $middleware->web(append: [
-            \App\Http\Middleware\SecurityHeaders::class,
+            SecurityHeaders::class,
         ]);
 
         // Convenient role/permission gates on routes.
         $middleware->alias([
-            'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
-            'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
-            'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
+            'role' => RoleMiddleware::class,
+            'permission' => PermissionMiddleware::class,
+            'role_or_permission' => RoleOrPermissionMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

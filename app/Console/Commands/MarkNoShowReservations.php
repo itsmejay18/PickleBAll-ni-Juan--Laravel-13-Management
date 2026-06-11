@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Reservation;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\InventoryService;
 use App\Services\NotificationService;
 use Illuminate\Console\Command;
 
@@ -14,10 +15,11 @@ class MarkNoShowReservations extends Command
 
     protected $description = 'Flag confirmed reservations whose end time has passed without a check-in.';
 
-    public function handle(AuditService $audit, NotificationService $notifications): int
+    public function handle(AuditService $audit, InventoryService $inventory, NotificationService $notifications): int
     {
         $today = now()->toDateString();
 
+        // W10 fix: exclude payment_verification — only target confirmed+paid reservations
         $candidates = Reservation::query()
             ->whereNull('deleted_at')
             ->where('status', 'confirmed')
@@ -32,13 +34,17 @@ class MarkNoShowReservations extends Command
             })
             ->get();
 
+        // C5 fix: do not fall back to first user — skip audit if no super admin
         $system = User::query()->role(User::ROLE_SUPER_ADMIN)->first();
         $count = 0;
 
         foreach ($candidates as $reservation) {
             $reservation->update(['status' => 'no_show', 'is_active' => false]);
 
+            // W8 fix: restore reserved equipment inventory on no-show
             if ($system) {
+                $inventory->restoreReservedFor($reservation, $system, 'Equipment released after no-show.');
+
                 $audit->log('reservation.no_show', 'reservations', $reservation->id, $system, [
                     'reservation_code' => $reservation->reservation_code,
                 ]);

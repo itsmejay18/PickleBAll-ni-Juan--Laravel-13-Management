@@ -38,19 +38,28 @@ class InventoryService
                 $previousReserved = (int) $inventory->reserved_quantity;
                 $quantity = (int) $line->quantity;
 
+                $damaged = (int) ($inventory->damaged_quantity ?? 0);
+                $lost = (int) ($inventory->lost_quantity ?? 0);
+                $maintenance = (int) ($inventory->under_maintenance_quantity ?? 0);
+                $physicalStock = max(0, (int) $inventory->total_quantity - $damaged - $lost - $maintenance);
+
+                $newAvailable = max(0, min($physicalStock, $previousAvailable + $quantity));
+                $newReserved = max(0, min($physicalStock, $previousReserved - $quantity));
+
                 $inventory->update([
-                    'available_quantity' => $previousAvailable + $quantity,
-                    'reserved_quantity' => max(0, $previousReserved - $quantity),
+                    'available_quantity' => $newAvailable,
+                    'reserved_quantity' => $newReserved,
                 ]);
 
+                // I11 fix: use 'reservation_released' for cancellations/expiry, not 'check_in'
                 InventoryTransaction::query()->create([
                     'location_id' => $reservation->location_id,
                     'equipment_type_id' => $line->equipment_type_id,
                     'reservation_id' => $reservation->id,
-                    'transaction_type' => 'check_in',
+                    'transaction_type' => 'reservation_released',
                     'quantity' => $quantity,
                     'previous_available' => $previousAvailable,
-                    'new_available' => $previousAvailable + $quantity,
+                    'new_available' => $newAvailable,
                     'notes' => $note,
                     'performed_by' => $performer->id,
                     'created_at' => now(),

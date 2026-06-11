@@ -9,7 +9,7 @@
     $dashboardActive = request()->routeIs('dashboard');
     $moduleActive = fn (string $module): bool => request()->routeIs('modules.show') && request()->route('module') === $module;
 
-    $profile = $user ? EndUserProfile::query()->where('user_id', $user->id)->first() : null;
+    $profile = $user?->endUserProfile;  // I4 fix: use relationship instead of raw query
     $displayName = $profile
         ? trim(($profile->first_name ?? '').' '.($profile->last_name ?? ''))
         : null;
@@ -20,7 +20,7 @@
         : asset('images/branding.png');
 
     $notificationService = app(NotificationService::class);
-    $notifications = $user ? $notificationService->recent($user, 8) : collect();
+    $notifications = $user ? $notificationService->unreadRecent($user, 8) : collect();
     $unreadCount = $user ? $notificationService->unreadCount($user) : 0;
 
     $navSections = [
@@ -41,6 +41,7 @@
                 ['label' => 'Payments', 'href' => route('modules.show', 'payments'), 'active' => $moduleActive('payments'), 'icon' => 'fas fa-money-check-alt'],
                 ['label' => 'Equipment', 'href' => route('modules.show', 'equipment'), 'active' => $moduleActive('equipment'), 'icon' => 'fas fa-boxes'],
                 ['label' => 'Users', 'href' => route('modules.show', 'users'), 'active' => $moduleActive('users'), 'icon' => 'fas fa-users-cog'],
+                ['label' => 'Reschedule', 'href' => route('modules.show', 'reschedule-management'), 'active' => $moduleActive('reschedule-management'), 'icon' => 'fas fa-calendar-check'],
                 ['label' => 'Reports', 'href' => route('modules.show', 'reports'), 'active' => $moduleActive('reports'), 'icon' => 'fas fa-file-export'],
             ],
         ];
@@ -65,8 +66,12 @@
         $customerItems[] = ['label' => 'Pay GCash', 'href' => route('modules.show', 'payments'), 'active' => $moduleActive('payments'), 'icon' => 'fas fa-wallet'];
     }
 
-    $customerItems[] = ['label' => 'Receipts', 'href' => route('modules.show', 'receipts'), 'active' => $moduleActive('receipts'), 'icon' => 'fas fa-receipt'];
+    $customerItems[] = ['label' => 'Book History', 'href' => route('modules.show', 'receipts'), 'active' => $moduleActive('receipts'), 'icon' => 'fas fa-history'];
     $customerItems[] = ['label' => 'Reviews', 'href' => route('modules.show', 'reviews'), 'active' => $moduleActive('reviews'), 'icon' => 'fas fa-star'];
+
+    if ($user?->hasRole('super_admin')) {
+        $customerItems[] = ['label' => 'Income', 'href' => route('modules.show', 'income'), 'active' => $moduleActive('income'), 'icon' => 'fas fa-peso-sign'];
+    }
 
     $navSections[] = [
         'label' => 'Customer',
@@ -196,7 +201,7 @@
                             {{-- NOTIFICATIONS bell with real per-user data --}}
                             <li class="nav-item dropdown pe-2 d-flex align-items-center">
                                 <a href="javascript:;" class="nav-link text-body p-0 position-relative pbj-bell"
-                                   id="notificationsDropdown" data-bs-toggle="dropdown" aria-expanded="false"
+                                   id="notificationsDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false"
                                    data-pbj-feed="{{ route('notifications.index') }}"
                                    title="Notifications">
                                     <i class="fa fa-bell cursor-pointer fa-lg"></i>
@@ -222,31 +227,106 @@
                                             $targetUrl = $notification->reservation_id
                                                 ? route('receipts.show', $notification->reservation_id)
                                                 : null;
+                                            $isPaymentProof = $notification->read_at === null && isset($notification->metadata['payment_id']);
                                         @endphp
-                                        <li class="pbj-notification-item border-radius-md {{ $notification->read_at === null ? 'unread' : '' }}">
-                                            <form method="POST"
-                                                action="{{ route('notifications.read', $notification->id) }}"
-                                                class="m-0 pbj-notification-form"
-                                                @if ($targetUrl) data-pbj-target="{{ $targetUrl }}" @endif>
-                                                @csrf
-                                                <button type="submit" class="dropdown-item border-radius-md text-start w-100 py-2">
-                                                    <div class="d-flex">
-                                                        <div class="avatar avatar-sm bg-gradient-{{ $notification->channel === 'admin' ? 'dark' : ($notification->channel === 'staff' ? 'info' : 'primary') }} me-3 my-auto flex-shrink-0">
-                                                            <i class="fas fa-{{ $notification->channel === 'admin' ? 'user-shield' : ($notification->channel === 'staff' ? 'user-cog' : 'bell') }} text-white text-sm"></i>
+                                        @if (!$isPaymentProof)
+                                            <li class="pbj-notification-item border-radius-md {{ $notification->read_at === null ? 'unread' : '' }}">
+                                                <form method="POST"
+                                                    action="{{ route('notifications.read', $notification->id) }}"
+                                                    class="m-0 pbj-notification-form"
+                                                    @if ($targetUrl) data-pbj-target="{{ $targetUrl }}" @endif>
+                                                    @csrf
+                                                    <button type="submit" class="dropdown-item border-radius-md text-start w-100 py-2">
+                                                        <div class="d-flex">
+                                                            <div class="avatar avatar-sm bg-gradient-{{ $notification->channel === 'admin' ? 'dark' : ($notification->channel === 'staff' ? 'info' : 'primary') }} me-3 my-auto flex-shrink-0">
+                                                                <i class="fas fa-{{ $notification->channel === 'admin' ? 'user-shield' : ($notification->channel === 'staff' ? 'user-cog' : 'bell') }} text-white text-sm"></i>
+                                                            </div>
+                                                            <div class="d-flex flex-column justify-content-center">
+                                                                <h6 class="text-sm font-weight-bold mb-1 text-wrap">{{ $notification->subject }}</h6>
+                                                                @if ($notification->message)
+                                                                    <p class="text-xs text-secondary mb-1 text-wrap">{{ \Illuminate\Support\Str::limit($notification->message, 100) }}</p>
+                                                                @endif
+                                                                <p class="text-xs text-secondary mb-0">
+                                                                    <i class="fa fa-clock me-1"></i>{{ $notification->created_at?->diffForHumans() }}
+                                                                </p>
+                                                            </div>
                                                         </div>
-                                                        <div class="d-flex flex-column justify-content-center">
-                                                            <h6 class="text-sm font-weight-bold mb-1 text-wrap">{{ $notification->subject }}</h6>
-                                                            @if ($notification->message)
-                                                                <p class="text-xs text-secondary mb-1 text-wrap">{{ \Illuminate\Support\Str::limit($notification->message, 100) }}</p>
-                                                            @endif
-                                                            <p class="text-xs text-secondary mb-0">
-                                                                <i class="fa fa-clock me-1"></i>{{ $notification->created_at?->diffForHumans() }}
-                                                            </p>
+                                                    </button>
+                                                </form>
+                                            </li>
+                                        @else
+                                            <li class="pbj-notification-item border-radius-md p-2 {{ $notification->read_at === null ? 'unread' : '' }}" style="border-bottom: 1px solid rgba(0,0,0,0.05); cursor:pointer;" onclick="const f = document.getElementById('nav-readForm-{{ $notification->id }}'); if (f) f.requestSubmit ? f.requestSubmit() : f.submit();">
+                                                <form id="nav-readForm-{{ $notification->id }}" method="POST" action="{{ route('notifications.read', $notification->id) }}" class="m-0 pbj-notification-form d-none" data-pbj-target="{{ route('modules.show', 'payments') }}">
+                                                    @csrf
+                                                </form>
+                                                <div class="d-flex align-items-start px-2">
+                                                    <div class="avatar avatar-sm bg-gradient-dark me-3 my-auto flex-shrink-0">
+                                                        <i class="fas fa-file-invoice-dollar text-white text-sm"></i>
+                                                    </div>
+                                                    <div class="d-flex flex-column justify-content-center flex-grow-1" style="min-width: 0;">
+                                                        <h6 class="text-sm font-weight-bold mb-0 text-wrap">{{ $notification->subject }}</h6>
+                                                        <p class="text-xs text-secondary mb-1 text-wrap" style="line-height: 1.3;">{{ $notification->message }}</p>
+                                                        
+                                                        @php
+                                                            $pId = $notification->metadata['payment_id'];
+                                                            $amt = $notification->metadata['amount'] ?? 0;
+                                                            $ref = $notification->metadata['reference_number'] ?? '';
+                                                        @endphp
+                                                        <div class="mt-2 p-2 rounded bg-light border" style="width: 100%;" onclick="event.stopPropagation()">
+                                                            <div class="d-flex justify-content-between align-items-center mb-2 text-xxs font-weight-bold text-dark">
+                                                                <span>Amount: ₱{{ number_format($amt, 2) }}</span>
+                                                                <span>Ref: {{ $ref }}</span>
+                                                            </div>
+                                                            
+                                                            <div class="d-flex flex-wrap gap-1">
+                                                                <!-- View Proof -->
+                                                                <a href="{{ route('payments.proof.download', $pId) }}" target="_blank" class="btn btn-xxs bg-gradient-info mb-0 py-1 px-2 text-xxs" style="font-size: 10px;">
+                                                                    <i class="fas fa-eye me-1"></i>Proof
+                                                                </a>
+                                                                
+                                                                <!-- Approve Form -->
+                                                                <form method="POST" action="{{ route('payments.approve', $pId) }}" class="d-inline m-0">
+                                                                    @csrf
+                                                                    <button type="submit" class="btn btn-xxs bg-gradient-success mb-0 py-1 px-2 text-xxs" style="font-size: 10px;" onclick="return confirm('Approve this GCash payment?')">
+                                                                        <i class="fas fa-check me-1"></i>Approve
+                                                                    </button>
+                                                                </form>
+
+                                                                <!-- Reject toggle -->
+                                                                <button type="button" class="btn btn-xxs bg-gradient-danger mb-0 py-1 px-2 text-xxs" style="font-size: 10px;" onclick="event.stopPropagation(); toggleQuickReject('{{ $pId }}', 'nav')">
+                                                                    <i class="fas fa-times me-1"></i>Reject
+                                                                </button>
+                                                            </div>
+
+                                                            <!-- Rejection input form -->
+                                                            <div id="nav-quickRejectForm-{{ $pId }}" class="mt-2" style="display: none;">
+                                                                <form method="POST" action="{{ route('payments.reject', $pId) }}" class="m-0">
+                                                                    @csrf
+                                                                    <input type="text" name="rejection_reason" class="form-control form-control-xs py-1 px-2 mb-1" style="font-size: 11px; height: auto;" placeholder="Reason (e.g. blurred image)" required>
+                                                                    <div class="d-flex gap-1 justify-content-end">
+                                                                        <button type="button" class="btn btn-xxs btn-link text-secondary mb-0 p-1" style="font-size: 10px;" onclick="toggleQuickReject('{{ $pId }}', 'nav')">Cancel</button>
+                                                                        <button type="submit" class="btn btn-xxs bg-gradient-danger mb-0 py-1 px-2" style="font-size: 10px;">Submit Reject</button>
+                                                                    </div>
+                                                                </form>
+                                                            </div>
+                                                        </div>
+
+                                                        <div class="d-flex align-items-center justify-content-between mt-2" onclick="event.stopPropagation()">
+                                                            <span class="text-xxs text-secondary">
+                                                                 <i class="fa fa-clock me-1"></i>{{ $notification->created_at?->diffForHumans() }}
+                                                            </span>
+                                                            
+                                                            <form method="POST" action="{{ route('notifications.read', $notification->id) }}" class="m-0 pbj-notification-form" data-pbj-target="{{ route('modules.show', 'payments') }}">
+                                                                @csrf
+                                                                <button type="submit" class="btn btn-link text-info text-xxs font-weight-bold mb-0 p-0" style="font-size: 10px; border:none; background:none;">
+                                                                    Mark read
+                                                                </button>
+                                                            </form>
                                                         </div>
                                                     </div>
-                                                </button>
-                                            </form>
-                                        </li>
+                                                </div>
+                                            </li>
+                                        @endif
                                     @empty
                                         <li class="pbj-empty-state">
                                             <i class="fas fa-bell-slash mb-2 d-block text-secondary"></i>
@@ -337,6 +417,14 @@
         @stack('modals')
 
         <script>
+            window.toggleQuickReject = function(paymentId, prefix = '') {
+                const id = prefix ? prefix + '-quickRejectForm-' + paymentId : 'quickRejectForm-' + paymentId;
+                const formDiv = document.getElementById(id);
+                if (formDiv) {
+                    formDiv.style.display = formDiv.style.display === 'none' ? 'block' : 'none';
+                }
+            };
+
             (function () {
                 document.addEventListener('submit', function (event) {
                     const form = event.target.closest('.pbj-notification-form');

@@ -22,8 +22,7 @@ class CancellationController extends Controller
         private readonly AuditService $audit,
         private readonly InventoryService $inventory,
         private readonly NotificationService $notifications,
-    ) {
-    }
+    ) {}
 
     public function store(Request $request, Reservation $reservation): RedirectResponse
     {
@@ -79,13 +78,20 @@ class CancellationController extends Controller
             ]);
 
             // Record refund as a payment row of type refund (negative amount kept positive on row, status refunded)
+            // W3 fix: use the original payment method instead of hardcoding 'gcash'
+            $originalPaymentMethod = Payment::query()
+                ->where('reservation_id', $reservation->id)
+                ->whereIn('status', ['verified'])
+                ->orderByDesc('created_at')
+                ->value('payment_method') ?? 'gcash';
+
             $refundPaymentId = null;
             if ($refundAmount > 0) {
                 $refundPaymentId = Payment::query()->create([
                     'reservation_id' => $reservation->id,
                     'payment_reference' => 'REFUND-'.$reservation->reservation_code.'-'.now()->format('His'),
                     'amount' => $refundAmount,
-                    'payment_method' => 'gcash',
+                    'payment_method' => $originalPaymentMethod,
                     'payment_type' => 'partial',
                     'status' => 'refunded',
                     'refunded_at' => now(),
@@ -135,6 +141,22 @@ class CancellationController extends Controller
             $reservation,
             ['refund_amount' => $refundAmount, 'reason' => $validated['reason_text']],
         );
+
+        $isStaffOrAdmin = $user->hasAnyRole([
+            User::ROLE_SUPER_ADMIN,
+            User::ROLE_ADMIN,
+            User::ROLE_LOCATION_MANAGER,
+            User::ROLE_STAFF
+        ]);
+
+        if (!$isStaffOrAdmin) {
+            $this->notifications->notifyStaffAndAdmins(
+                'Reservation Cancelled',
+                "Client cancelled booking {$reservation->reservation_code}. Reason: {$validated['reason_text']}.",
+                $reservation,
+                ['reason' => $validated['reason_text']]
+            );
+        }
 
         return back()->with('status', 'Reservation '.$reservation->reservation_code.' cancelled. '.($refundAmount > 0 ? 'Refund of PHP '.number_format($refundAmount, 2).' recorded.' : 'No refund per policy.'));
     }

@@ -6,8 +6,9 @@ namespace App\Models;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
@@ -44,5 +45,11 @@ class User extends Authenticatable
             'locked_until' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    // I4 fix: relationship so the layout can use $user->endUserProfile instead of a raw query
+    public function endUserProfile(): HasOne
+    {
+        return $this->hasOne(EndUserProfile::class);
     }
 }

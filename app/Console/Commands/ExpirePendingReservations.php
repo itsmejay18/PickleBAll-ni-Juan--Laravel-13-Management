@@ -28,7 +28,8 @@ class ExpirePendingReservations extends Command
             })
             ->get();
 
-        $system = User::query()->role(User::ROLE_SUPER_ADMIN)->first() ?? User::query()->first();
+        // C5 fix: do not fall back to first user — skip audit/inventory if no super admin
+        $system = User::query()->role(User::ROLE_SUPER_ADMIN)->first();
 
         $count = 0;
         foreach ($reservations as $reservation) {
@@ -43,6 +44,13 @@ class ExpirePendingReservations extends Command
                     'reservation_code' => $reservation->reservation_code,
                     'expires_at' => $reservation->expires_at,
                 ]);
+            } else {
+                // Still restore inventory even without an audit actor
+                $fallback = User::query()->role(User::ROLE_ADMIN)->first();
+                if ($fallback) {
+                    $inventory->restoreReservedFor($reservation, $fallback, 'Auto-released after hold expired.');
+                }
+                $this->warn('No super_admin found — audit skipped for '.$reservation->reservation_code);
             }
 
             $notifications->notify(

@@ -16,13 +16,22 @@ use App\Http\Controllers\RatingController;
 use App\Http\Controllers\RatingModerationController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\ReportExportController;
+use App\Http\Controllers\RescheduleController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WalkInController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    return view('welcome');
+    $locations = \Illuminate\Support\Facades\DB::table('locations')
+        ->where('is_active', true)
+        ->whereNull('deleted_at')
+        ->orderBy('name')
+        ->get();
+    return view('welcome', compact('locations'));
 });
+
+Route::get('/public/availability', [ModulePageController::class, 'getPublicAvailability'])
+    ->name('public.availability');
 
 Route::get('/dashboard', DashboardController::class)
     ->middleware(['auth', 'verified'])
@@ -37,6 +46,9 @@ Route::middleware('auth')->group(function () {
         ->middleware('throttle:30,1')
         ->name('bookings.store');
 
+    Route::get('/bookings/{reservationCode}/pay', [ModulePageController::class, 'showPaymentPage'])
+        ->name('bookings.pay');
+
     Route::post('/payments/proof', [ModulePageController::class, 'uploadPaymentProof'])
         ->middleware('throttle:20,1')
         ->name('payments.proof.store');
@@ -44,8 +56,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/payments/{payment}/approve', [ModulePageController::class, 'approvePayment'])->name('payments.approve');
     Route::post('/payments/{payment}/reject', [ModulePageController::class, 'rejectPayment'])->name('payments.reject');
     Route::get('/payments/{payment}/proof', [PaymentProofController::class, 'show'])
-        ->middleware('signed')
         ->name('payments.proof.download');
+
+    Route::post('/admin/settings/gcash', [ModulePageController::class, 'updateGcashSettings'])
+        ->name('admin.settings.gcash.update');
 
     // Locations CRUD
     Route::post('/locations', [LocationController::class, 'store'])->name('locations.store');
@@ -99,6 +113,17 @@ Route::middleware('auth')->group(function () {
     Route::post('/reservations/{reservation}/check-out', [CheckOutController::class, 'store'])->name('reservations.check-out');
     Route::post('/reservations/{reservation}/rate', [RatingController::class, 'store'])->name('reservations.rate');
     Route::get('/receipts/{reservation}', [ReceiptController::class, 'show'])->name('receipts.show');
+
+    // Reschedule management
+    Route::post('/reservations/{reservation}/reschedule/lock', [RescheduleController::class, 'lock'])
+        ->name('reservations.reschedule.lock');
+    Route::post('/reservations/{reservation}/reschedule/unlock', [RescheduleController::class, 'unlock'])
+        ->name('reservations.reschedule.unlock');
+    Route::get('/reservations/{reservation}/reschedule/status', [RescheduleController::class, 'status'])
+        ->name('reservations.reschedule.status');
+    Route::post('/reservations/{reservation}/reschedule', [RescheduleController::class, 'reschedule'])
+        ->middleware('throttle:20,1')
+        ->name('reservations.reschedule');
 
     // Notifications
     Route::get('/notifications/feed', [NotificationController::class, 'index'])->name('notifications.index');
