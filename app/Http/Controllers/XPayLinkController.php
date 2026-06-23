@@ -60,10 +60,10 @@ class XPayLinkController extends Controller
             'external_bill_id' => $reservation->reservation_code,
             'customer_name' => $customerName,
             'amount' => (float) $reservation->grand_total,
-            'callback_url' => route('payments.xpaylink.webhook'),
-            'success_url' => route('modules.show', 'receipts'),
-            'return_url' => route('modules.show', 'receipts'),
-            'failed_url' => route('bookings.pay', $reservation->reservation_code),
+            'callback_url' => str_replace('http://', 'https://', route('payments.xpaylink.webhook')),
+            'success_url' => str_replace('http://', 'https://', route('modules.show', 'receipts')),
+            'return_url' => str_replace('http://', 'https://', route('modules.show', 'receipts')),
+            'failed_url' => str_replace('http://', 'https://', route('bookings.pay', $reservation->reservation_code)),
         ];
 
         try {

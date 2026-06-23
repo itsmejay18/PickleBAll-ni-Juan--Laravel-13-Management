@@ -188,10 +188,10 @@ class OpenPlayController extends Controller
             'external_bill_id' => 'OPREG-' . $registration->id,
             'customer_name' => $customerName,
             'amount' => (float) $event->entrance_fee,
-            'callback_url' => route('payments.xpaylink.webhook'),
-            'success_url' => route('open-play.index'),
-            'return_url' => route('open-play.index'),
-            'failed_url' => route('open-play.index'),
+            'callback_url' => str_replace('http://', 'https://', route('payments.xpaylink.webhook')),
+            'success_url' => str_replace('http://', 'https://', route('open-play.index')),
+            'return_url' => str_replace('http://', 'https://', route('open-play.index')),
+            'failed_url' => str_replace('http://', 'https://', route('open-play.index')),
         ];
 
         try {
