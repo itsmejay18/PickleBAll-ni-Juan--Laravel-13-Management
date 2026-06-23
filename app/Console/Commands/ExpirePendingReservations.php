@@ -66,6 +66,11 @@ class ExpirePendingReservations extends Command
 
         $this->info("Expired {$count} pending reservation(s).");
 
+        $expiredOpenPlayCount = \App\Models\OpenPlayRegistration::expirePending();
+        if ($expiredOpenPlayCount > 0) {
+            $this->info("Expired {$expiredOpenPlayCount} pending Open Play registration(s).");
+        }
+
         return self::SUCCESS;
     }
 }

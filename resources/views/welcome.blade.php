@@ -131,12 +131,13 @@
         }
 
         .hero-logo {
+            display: block;
+            margin: 0 auto 1.75rem;
             width: clamp(72px, 12vw, 100px);
             height: clamp(72px, 12vw, 100px);
             border-radius: var(--radius);
             object-fit: cover;
             box-shadow: 0 20px 50px rgba(0,0,0,0.35);
-            margin-bottom: 1.75rem;
         }
 
         .hero-badge {
@@ -448,6 +449,12 @@
             margin-top: 0.5rem;
         }
 
+        @media (max-width: 500px) {
+            .slots-timeline {
+                grid-template-columns: repeat(2, 1fr) !important;
+            }
+        }
+
         .slot-badge {
             background: rgba(24, 163, 127, 0.04);
             border: 1px solid rgba(24, 163, 127, 0.2);
@@ -521,6 +528,21 @@
             border: 1px solid rgba(245, 54, 92, 0.18);
         }
 
+        .op-card {
+            background: linear-gradient(135deg, rgba(24,163,127,0.18), rgba(13,17,23,0.6));
+            border: 1px solid rgba(24,163,127,0.35);
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+        }
+
+        .op-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.75rem;
+            margin-bottom: 1.25rem;
+        }
+
         /* ─── RESPONSIVE ─── */
         @media (max-width: 600px) {
             nav { padding: 1rem 1.25rem; }
@@ -530,6 +552,8 @@
             .steps-grid { grid-template-columns: 1fr; }
             footer { flex-direction: column; text-align: center; }
             .footer-links { justify-content: center; }
+            .op-card { padding: 1.25rem; }
+            .op-grid { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
@@ -549,9 +573,6 @@
             @else
                 @if (Route::has('login'))
                     <a href="{{ route('login') }}" class="btn-ghost">Sign In</a>
-                @endif
-                @if (Route::has('register'))
-                    <a href="{{ route('register') }}" class="btn-primary">Book a Court</a>
                 @endif
             @endauth
         </div>
@@ -576,7 +597,7 @@
                 Reserve your pickleball court, rent equipment, and pay via GCash — all in one place. No calls, no waiting.
             </p>
 
-            <div class="hero-btns" style="margin-bottom: 2rem;">
+            <div class="hero-btns" style="margin-bottom: 1.5rem;">
                 @auth
                     <a href="{{ route('modules.show', ['module' => 'book-court']) }}" class="btn-hero-primary">
                         <i class="fas fa-calendar-plus"></i> Reserve a Court
@@ -591,48 +612,107 @@
                     <a href="#availability" class="btn-hero-primary">
                         <i class="fas fa-calendar-check"></i> Book Your Available Slot Now
                     </a>
-                    @if (Route::has('login'))
-                        <a href="{{ route('login') }}" class="btn-hero-ghost">
-                            <i class="fas fa-sign-in-alt"></i> Sign In
-                        </a>
-                    @endif
                     <a href="#locations" class="btn-hero-ghost">
                         <i class="fas fa-map-marked-alt"></i> View Locations
                     </a>
                 @endauth
             </div>
 
-            <!-- Quick Location Directions Group -->
-            <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 1rem; border-radius: 10px; display: inline-block; max-width: 100%; backdrop-filter: blur(8px); margin-top: 1rem;">
-                <span style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--green); letter-spacing: 0.05em; display: block; margin-bottom: 0.6rem;">Get Directions (Google Maps)</span>
-                <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center;">
-                    @foreach ($locations as $loc)
-                        @php
-                            $quickMapsUrl = "https://www.google.com/maps/search/?api=1&query=";
-                            if (!empty($loc->latitude) && !empty($loc->longitude)) {
-                                $quickMapsUrl .= $loc->latitude . ',' . $loc->longitude;
-                            } else {
-                                $quickMapsUrl .= urlencode($loc->name . ', ' . $loc->address_line1 . ', ' . $loc->city);
-                            }
-                        @endphp
-                        <a href="{{ $quickMapsUrl }}" target="_blank" class="btn-ghost" style="font-size: 0.72rem; padding: 0.4rem 0.8rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 500; background: rgba(13, 17, 23, 0.6); border-color: rgba(255,255,255,0.12);">
-                            <i class="fas fa-directions" style="color: var(--green);"></i> {{ $loc->name }}
-                        </a>
-                    @endforeach
-                </div>
-            </div>
         </div>
     </section>
 
-    {{-- ─── PILLS ─── --}}
-    <div class="pills-section">
-        <span class="pill"><i class="fas fa-check"></i> Online reservations</span>
-        <span class="pill"><i class="fas fa-check"></i> GCash payments</span>
-        <span class="pill"><i class="fas fa-check"></i> Equipment rental</span>
-        <span class="pill"><i class="fas fa-check"></i> Digital receipt</span>
-        <span class="pill"><i class="fas fa-check"></i> Easy check-in</span>
-        <span class="pill"><i class="fas fa-check"></i> Cancellation support</span>
-    </div>
+    {{-- ─── OPEN PLAY CARD ─── --}}
+    @if (!empty($openPlay))
+        @php
+            $opDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+            $opTaken = $openPlay->takenSlots();
+            $opRemaining = $openPlay->remainingSlots();
+            $opFull = $openPlay->isFull();
+        @endphp
+        <section style="background: #080c12; padding: 3rem 2rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <div style="max-width: 760px; margin: 0 auto;" data-op-slots-url="{{ route('open-play.slots', $openPlay->id) }}">
+                <div class="op-card">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; margin-bottom:1.25rem;">
+                        <div style="display:flex; align-items:center; gap:0.6rem;">
+                            <i class="fas fa-table-tennis" style="color: var(--green); font-size:1.5rem;"></i>
+                            <div>
+                                <h2 style="color:#fff; font-size:1.4rem; margin:0; font-weight:800;">Open Play</h2>
+                                <span style="color:rgba(255,255,255,0.6); font-size:0.8rem;">Drop in, get matched, and play.</span>
+                            </div>
+                        </div>
+                        <span id="opStatusBadge" style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:0.4rem 0.85rem; border-radius:999px; background:{{ $opFull ? 'rgba(239,68,68,0.2)' : 'rgba(24,163,127,0.2)' }}; color:{{ $opFull ? '#f87171' : '#34d399' }}; border:1px solid {{ $opFull ? 'rgba(239,68,68,0.4)' : 'rgba(24,163,127,0.4)' }};">
+                            {{ $opFull ? 'OPEN PLAY FULL' : 'Registration Open' }}
+                        </span>
+                    </div>
+
+                    <div class="op-grid">
+                        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:0.85rem; text-align:center;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; color:rgba(255,255,255,0.5); margin-bottom:0.25rem;">Day</div>
+                            <div style="color:#fff; font-weight:700; font-size:0.9rem;">{{ $opDays[$openPlay->day_of_week] ?? '—' }}</div>
+                            <div style="color:rgba(255,255,255,0.55); font-size:0.72rem;">{{ $openPlay->event_date->format('M d') }}</div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:0.85rem; text-align:center;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; color:rgba(255,255,255,0.5); margin-bottom:0.25rem;">Time</div>
+                            <div style="color:#fff; font-weight:700; font-size:0.9rem;">{{ \Carbon\Carbon::parse($openPlay->start_time)->format('g:i A') }}</div>
+                            <div style="color:rgba(255,255,255,0.55); font-size:0.72rem;">to {{ \Carbon\Carbon::parse($openPlay->end_time)->format('g:i A') }}</div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:0.85rem; text-align:center;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; color:rgba(255,255,255,0.5); margin-bottom:0.25rem;">Fee</div>
+                            <div style="color:var(--green); font-weight:700; font-size:0.9rem;">PHP {{ number_format($openPlay->entrance_fee, 2) }}</div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:0.85rem; text-align:center;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; color:rgba(255,255,255,0.5); margin-bottom:0.25rem;">Slots Left</div>
+                            <div style="color:#fff; font-weight:700; font-size:0.9rem;"><span id="opRemaining">{{ $opRemaining }}</span> / {{ $openPlay->max_slots }}</div>
+                        </div>
+                    </div>
+
+                    <div style="height:8px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden; margin-bottom:1.25rem;">
+                        <div id="opProgress" style="height:100%; background:var(--green); width:{{ $openPlay->max_slots ? min(100, round($opTaken / $openPlay->max_slots * 100)) : 0 }}%; transition:width .4s;"></div>
+                    </div>
+
+                    @auth
+                        <a href="{{ route('open-play.index') }}" id="opJoinBtn" class="btn-hero-primary" style="width:100%; justify-content:center; {{ $opFull ? 'opacity:0.6; pointer-events:none;' : '' }}">
+                            <i class="fas fa-user-plus"></i> <span id="opJoinLabel">{{ $opFull ? 'Open Play Full' : 'Join Open Play' }}</span>
+                        </a>
+                    @else
+                        <a href="{{ route('login') }}" class="btn-hero-primary" style="width:100%; justify-content:center;">
+                            <i class="fas fa-sign-in-alt"></i> Sign in to Join Open Play
+                        </a>
+                    @endauth
+                </div>
+            </div>
+        </section>
+
+        <script>
+            (function () {
+                const wrap = document.querySelector('[data-op-slots-url]');
+                if (!wrap) return;
+                const url = wrap.dataset.opSlotsUrl;
+                const maxSlots = {{ (int) $openPlay->max_slots }};
+                async function tick() {
+                    try {
+                        const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                        if (!r.ok) return;
+                        const d = await r.json();
+                        const rem = document.getElementById('opRemaining');
+                        const prog = document.getElementById('opProgress');
+                        const badge = document.getElementById('opStatusBadge');
+                        const joinBtn = document.getElementById('opJoinBtn');
+                        const joinLabel = document.getElementById('opJoinLabel');
+                        if (rem) rem.textContent = d.remaining;
+                        if (prog && maxSlots) prog.style.width = Math.min(100, Math.round(d.taken / maxSlots * 100)) + '%';
+                        if (badge) badge.textContent = d.is_full ? 'OPEN PLAY FULL' : 'Registration Open';
+                        if (joinBtn && joinLabel) {
+                            joinLabel.textContent = d.is_full ? 'Open Play Full' : 'Join Open Play';
+                            joinBtn.style.opacity = d.is_full ? '0.6' : '';
+                            joinBtn.style.pointerEvents = d.is_full ? 'none' : '';
+                        }
+                    } catch (e) {}
+                }
+                setInterval(tick, 8000);
+            })();
+        </script>
+    @endif
 
     {{-- ─── LIVE COURT AVAILABILITY ─── --}}
     <section class="steps-section" id="availability" style="background: #080c12; border-bottom: 1px solid rgba(255,255,255,0.05); padding: 5rem 2rem;">
@@ -687,35 +767,6 @@
                 </div>
             </div>
 
-            <div style="margin-top: 3rem; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 1.5rem;">
-                <div style="display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center;">
-                    <a href="#availability" class="btn-hero-primary" style="font-size: 0.9rem; padding: 0.75rem 1.75rem;">
-                        <i class="fas fa-calendar-check"></i> Book Your Available Slot Now
-                    </a>
-                    <a href="#locations" class="btn-hero-ghost" style="font-size: 0.9rem; padding: 0.75rem 1.75rem;">
-                        <i class="fas fa-map-marked-alt"></i> View Locations
-                    </a>
-                </div>
-
-                <div style="width: 100%; max-width: 600px; margin-top: 1rem; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); padding: 1.25rem; border-radius: 10px;">
-                    <span style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--green); letter-spacing: 0.05em; display: block; margin-bottom: 0.75rem;">Get Quick Directions</span>
-                    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center;">
-                        @foreach ($locations as $loc)
-                            @php
-                                $quickMapsUrl = "https://www.google.com/maps/search/?api=1&query=";
-                                if (!empty($loc->latitude) && !empty($loc->longitude)) {
-                                    $quickMapsUrl .= $loc->latitude . ',' . $loc->longitude;
-                                } else {
-                                    $quickMapsUrl .= urlencode($loc->name . ', ' . $loc->address_line1 . ', ' . $loc->city);
-                                }
-                            @endphp
-                            <a href="{{ $quickMapsUrl }}" target="_blank" class="btn-ghost" style="font-size: 0.75rem; padding: 0.45rem 0.85rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem;">
-                                <i class="fas fa-directions"></i> {{ $loc->name }}
-                            </a>
-                        @endforeach
-                    </div>
-                </div>
-            </div>
         </div>
     </section>
 
@@ -759,44 +810,41 @@
         </div>
     </section>
 
-    {{-- ─── CTA ─── --}}
-    <section class="cta-section">
-        <div class="cta-box">
-            <h2 class="hero-title">Ready to play?</h2>
-            <p class="hero-sub">
-                Create a free account and book your first court in under 2 minutes.
-            </p>
-            <div class="hero-btns">
-                @auth
-                    <a href="{{ route('modules.show', 'book-court') }}" class="btn-hero-primary">
-                        <i class="fas fa-calendar-plus"></i> Reserve a Court
-                    </a>
-                @else
-                    @if (Route::has('register'))
-                        <a href="{{ route('register') }}" class="btn-hero-primary">
-                            <i class="fas fa-user-plus"></i> Create Account
-                        </a>
-                    @endif
-                    @if (Route::has('login'))
-                        <a href="{{ route('login') }}" class="btn-hero-ghost">
-                            <i class="fas fa-sign-in-alt"></i> Sign In
-                        </a>
-                    @endif
-                @endauth
-            </div>
-        </div>
-    </section>
 
     {{-- ─── FOOTER ─── --}}
-    <footer>
-        <span class="footer-copy">© {{ date('Y') }} Pickle Ballan ni Juan. All rights reserved.</span>
-        <div class="footer-links">
-            @if (Route::has('login'))
-                <a href="{{ route('login') }}">Sign In</a>
-            @endif
-            @if (Route::has('register'))
-                <a href="{{ route('register') }}">Register</a>
-            @endif
+    <footer style="background: #080c12; padding: 3rem 2rem 2rem; border-top: 1px solid rgba(255,255,255,0.05); margin-top: 0;">
+        <div style="max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem;">
+            <!-- Top Footer Bar: Contacts and Developer -->
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 1.5rem;">
+                <!-- Contact Links -->
+                <div style="display: flex; flex-wrap: wrap; gap: 1.5rem;">
+                    @if(!empty($publicSettings['phone']))
+                        <a href="tel:{{ $publicSettings['phone'] }}" style="color: rgba(255,255,255,0.6); text-decoration: none; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.5rem; transition: color 150ms;" onmouseover="this.style.color='#18a37f'" onmouseout="this.style.color='rgba(255,255,255,0.6)'">
+                            <i class="fas fa-phone-alt" style="color: var(--green); font-size: 0.8rem;"></i> {{ $publicSettings['phone'] }}
+                        </a>
+                    @endif
+                    @if(!empty($publicSettings['email']))
+                        <a href="mailto:{{ $publicSettings['email'] }}" style="color: rgba(255,255,255,0.6); text-decoration: none; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.5rem; transition: color 150ms;" onmouseover="this.style.color='#18a37f'" onmouseout="this.style.color='rgba(255,255,255,0.6)'">
+                            <i class="fas fa-envelope" style="color: var(--green); font-size: 0.8rem;"></i> {{ $publicSettings['email'] }}
+                        </a>
+                    @endif
+                </div>
+
+                <!-- Developer Link -->
+                @if(!empty($publicSettings['developer_name']))
+                    <div style="font-size: 0.85rem; color: rgba(255,255,255,0.45); display: inline-flex; align-items: center; gap: 0.4rem;">
+                        Developed by 
+                        <a href="{{ $publicSettings['developer_url'] ?? '#' }}" target="_blank" style="color: var(--green); text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; transition: opacity 150ms;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
+                            <i class="fas fa-laptop-code" style="font-size: 0.85rem;"></i> {{ $publicSettings['developer_name'] }}
+                        </a>
+                    </div>
+                @endif
+            </div>
+
+            <!-- Bottom Footer Bar: Copyright -->
+            <div style="display: flex; justify-content: center; align-items: center; text-align: center;">
+                <span class="footer-copy" style="margin: 0;">© {{ date('Y') }} Pickle Ballan ni Juan. All rights reserved.</span>
+            </div>
         </div>
     </footer>
 
@@ -821,7 +869,7 @@
                     </div>
                 `;
 
-                fetch(`/public/availability?location_id=${locationId}&date=${date}`)
+                fetch(`/court-availability?location_id=${locationId}&date=${date}`)
                     .then(response => {
                         if (!response.ok) throw new Error('Network response was not ok');
                         return response.json();
@@ -854,6 +902,10 @@
                             `;
 
                             court.slots.forEach(slot => {
+                                if (slot.reason === 'Closed') {
+                                    return; // Hide all closed slots automatically
+                                }
+
                                 const redirectUrl = `/modules/book-court?location_id=${locationId}&date=${date}&start_time=${slot.start}&end_time=${slot.end}&court_id=${court.court_id}`;
 
                                 if (slot.available) {
@@ -861,7 +913,7 @@
                                         <div class="slot-badge slot-hover" 
                                              onclick="window.location.href='${redirectUrl}'"
                                              title="${slot.reason}">
-                                            <span class="slot-label">${slot.label}</span>
+                                            <span class="slot-label">${slot.label.split(' - ')[0]}</span>
                                             <span class="btn-slot-action btn-book">
                                                 <i class="fas fa-calendar-plus"></i> Book
                                             </span>
@@ -871,7 +923,7 @@
                                     html += `
                                         <div class="slot-badge slot-unavailable"
                                              title="${slot.reason}">
-                                            <span class="slot-label">${slot.label}</span>
+                                            <span class="slot-label">${slot.label.split(' - ')[0]}</span>
                                             <span class="btn-slot-action btn-blocked">
                                                 <i class="fas fa-ban"></i> ${slot.reason}
                                             </span>

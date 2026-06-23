@@ -40,20 +40,24 @@
                 ['label' => 'Courts', 'href' => route('modules.show', 'courts'), 'active' => $moduleActive('courts'), 'icon' => 'fas fa-table-tennis'],
                 ['label' => 'Payments', 'href' => route('modules.show', 'payments'), 'active' => $moduleActive('payments'), 'icon' => 'fas fa-money-check-alt'],
                 ['label' => 'Equipment', 'href' => route('modules.show', 'equipment'), 'active' => $moduleActive('equipment'), 'icon' => 'fas fa-boxes'],
+                ['label' => 'Rates', 'href' => route('modules.show', 'rates'), 'active' => $moduleActive('rates'), 'icon' => 'fas fa-tags'],
                 ['label' => 'Users', 'href' => route('modules.show', 'users'), 'active' => $moduleActive('users'), 'icon' => 'fas fa-users-cog'],
-                ['label' => 'Reschedule', 'href' => route('modules.show', 'reschedule-management'), 'active' => $moduleActive('reschedule-management'), 'icon' => 'fas fa-calendar-check'],
+                ['label' => 'Open Play', 'href' => route('open-play.manage'), 'active' => request()->routeIs('open-play.manage'), 'icon' => 'fas fa-table-tennis'],
                 ['label' => 'Reports', 'href' => route('modules.show', 'reports'), 'active' => $moduleActive('reports'), 'icon' => 'fas fa-file-export'],
+                ['label' => 'Sales', 'href' => route('modules.show', 'sales'), 'active' => $moduleActive('sales'), 'icon' => 'fas fa-cash-register'],
+                ['label' => 'General Settings', 'href' => route('modules.show', 'general-settings'), 'active' => $moduleActive('general-settings'), 'icon' => 'fas fa-sliders-h'],
             ],
         ];
     }
 
-    if ($user?->hasAnyRole(['location_manager', 'staff'])) {
+    if ($user?->hasAnyRole(['super_admin', 'admin', 'location_manager', 'staff'])) {
         $navSections[] = [
             'label' => 'Staff',
             'items' => [
                 ['label' => 'Walk-ins', 'href' => route('modules.show', 'walk-ins'), 'active' => $moduleActive('walk-ins'), 'icon' => 'fas fa-walking'],
                 ['label' => 'Check-in', 'href' => route('modules.show', 'check-ins'), 'active' => $moduleActive('check-ins'), 'icon' => 'fas fa-clipboard-check'],
                 ['label' => 'Check-out', 'href' => route('modules.show', 'check-outs'), 'active' => $moduleActive('check-outs'), 'icon' => 'fas fa-sign-out-alt'],
+                ['label' => 'Open Play', 'href' => route('open-play.manage'), 'active' => request()->routeIs('open-play.manage'), 'icon' => 'fas fa-table-tennis'],
             ],
         ];
     }
@@ -66,17 +70,25 @@
         $customerItems[] = ['label' => 'Pay GCash', 'href' => route('modules.show', 'payments'), 'active' => $moduleActive('payments'), 'icon' => 'fas fa-wallet'];
     }
 
-    $customerItems[] = ['label' => 'Book History', 'href' => route('modules.show', 'receipts'), 'active' => $moduleActive('receipts'), 'icon' => 'fas fa-history'];
+    // Book History is the end user's personal booking history (their own bookings + total spend).
+    // Admins/staff view all bookings under Admin > Sales instead, so it is hidden for them here.
+    if (! $user?->hasAnyRole(['super_admin', 'admin', 'location_manager', 'staff'])) {
+        $customerItems[] = ['label' => 'Book History', 'href' => route('modules.show', 'receipts'), 'active' => $moduleActive('receipts'), 'icon' => 'fas fa-history'];
+    }
+
+    $customerItems[] = ['label' => 'Open Play', 'href' => route('open-play.index'), 'active' => request()->routeIs('open-play.index') || request()->routeIs('open-play.ticket'), 'icon' => 'fas fa-table-tennis'];
     $customerItems[] = ['label' => 'Reviews', 'href' => route('modules.show', 'reviews'), 'active' => $moduleActive('reviews'), 'icon' => 'fas fa-star'];
 
     if ($user?->hasRole('super_admin')) {
         $customerItems[] = ['label' => 'Income', 'href' => route('modules.show', 'income'), 'active' => $moduleActive('income'), 'icon' => 'fas fa-peso-sign'];
     }
 
-    $navSections[] = [
-        'label' => 'Customer',
-        'items' => $customerItems,
-    ];
+    if (! $user?->hasAnyRole(['super_admin', 'admin', 'location_manager', 'staff'])) {
+        $navSections[] = [
+            'label' => 'Customer',
+            'items' => $customerItems,
+        ];
+    }
 
 @endphp
 
@@ -136,6 +148,54 @@
                 color: #67748e;
                 text-align: center;
                 font-size: 0.85rem;
+            }
+            @media (max-width: 1199.98px) {
+                html.g-sidenav-pinned-html,
+                body.g-sidenav-pinned {
+                    overflow: hidden !important;
+                    height: 100vh !important;
+                    height: 100dvh !important;
+                }
+                .sidenav {
+                    z-index: 1050 !important;
+                    position: fixed !important;
+                    top: 1rem !important;
+                    bottom: 1rem !important;
+                    height: calc(100vh - 2rem) !important;
+                    height: calc(100dvh - 2rem) !important;
+                    max-height: calc(100vh - 2rem) !important;
+                    max-height: calc(100dvh - 2rem) !important;
+                    overflow: hidden !important;
+                }
+                .sidenav .navbar-collapse {
+                    height: calc(100% - 95px) !important;
+                    max-height: calc(100% - 95px) !important;
+                    overflow-y: auto !important;
+                    -webkit-overflow-scrolling: touch !important;
+                    touch-action: pan-y !important;
+                    scrollbar-width: none;
+                    -ms-overflow-style: none;
+                }
+                .sidenav .navbar-collapse::-webkit-scrollbar {
+                    display: none;
+                }
+                .sidenav-backdrop {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 1040;
+                    background: rgba(15, 23, 42, 0.4);
+                    backdrop-filter: blur(2px);
+                    display: none;
+                }
+                body.g-sidenav-pinned .sidenav-backdrop {
+                    display: block !important;
+                }
+                body.g-sidenav-pinned .navbar-main {
+                    z-index: 999 !important;
+                }
+                body.g-sidenav-pinned #iconNavbarSidenav {
+                    z-index: 999 !important;
+                }
             }
         </style>
     </head>
@@ -349,16 +409,17 @@
                                 <a href="javascript:;" class="nav-link text-body font-weight-bold px-2 d-flex align-items-center pbj-profile-trigger"
                                    id="profileDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                                     <img src="{{ $photoUrl }}" alt="{{ $displayName }}">
-                                    <div class="d-none d-sm-block text-start">
-                                        <span class="text-sm font-weight-bolder d-block">{{ $displayName }}</span>
-                                        <span class="text-xs text-secondary d-block text-capitalize">{{ $roleLabel }}</span>
+                                    <div class="text-start ms-2">
+                                        <span class="text-xs font-weight-bolder d-block text-dark">{{ $displayName }}</span>
+                                        <span class="badge bg-gradient-info text-xxs text-capitalize px-2 py-0.5" style="font-size: 9px; line-height: 1.2;">{{ $roleLabel }}</span>
                                     </div>
                                     <i class="fas fa-chevron-down text-xs ms-1 text-secondary"></i>
                                 </a>
                                 <ul class="dropdown-menu dropdown-menu-end px-2 py-2" aria-labelledby="profileDropdown" style="min-width: 220px;">
                                     <li class="px-2 py-2 border-bottom">
                                         <p class="text-sm font-weight-bold mb-0">{{ $displayName }}</p>
-                                        <p class="text-xs text-secondary mb-0">{{ $user?->email }}</p>
+                                        <p class="text-xs text-secondary mb-2">{{ $user?->email }}</p>
+                                        <span class="badge badge-sm bg-gradient-primary text-capitalize" style="font-size: 0.65rem; padding: 0.35em 0.6em;">{{ $roleLabel }}</span>
                                     </li>
                                     <li>
                                         <a class="dropdown-item border-radius-md py-2" href="{{ route('profile.edit') }}">
@@ -468,6 +529,102 @@
                 }
 
                 setInterval(refreshBadge, 60000);
+            })();
+        </script>
+
+        {{-- Reusable confirmation modal. Replaces the native confirm() dialog, which
+             silently returns false (cancelling the submit with no popup) once a browser
+             suppresses page dialogs — making every confirm-gated button appear "dead".
+             Any form with a data-confirm="..." attribute is gated through this instead. --}}
+        <div id="pbjConfirmModal" class="pbj-confirm-overlay" style="display:none; position:fixed; inset:0; z-index:1080; background:rgba(15,23,42,0.55); align-items:center; justify-content:center; padding:1rem;">
+            <div class="card shadow-lg border-0" style="max-width:420px; width:100%; border-radius:1rem;">
+                <div class="card-body text-center p-4">
+                    <div class="icon icon-shape bg-gradient-danger text-white rounded-circle mx-auto mb-3 d-flex align-items-center justify-content-center" style="width:56px; height:56px;">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                    <h6 class="font-weight-bolder text-dark mb-2">Please confirm</h6>
+                    <p id="pbjConfirmMessage" class="text-sm text-secondary mb-4">Are you sure?</p>
+                    <div class="d-flex justify-content-center gap-2">
+                        <button type="button" id="pbjConfirmCancel" class="btn btn-sm bg-gradient-secondary mb-0 px-4">Cancel</button>
+                        <button type="button" id="pbjConfirmOk" class="btn btn-sm bg-gradient-danger mb-0 px-4">Confirm</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <script>
+            (function () {
+                const overlay = document.getElementById('pbjConfirmModal');
+                const msgEl = document.getElementById('pbjConfirmMessage');
+                const okBtn = document.getElementById('pbjConfirmOk');
+                const cancelBtn = document.getElementById('pbjConfirmCancel');
+                if (!overlay) return;
+
+                let pendingForm = null;
+
+                function close() {
+                    overlay.style.display = 'none';
+                    pendingForm = null;
+                }
+
+                // Intercept submits from any form that opted in with data-confirm.
+                document.addEventListener('submit', function (event) {
+                    const form = event.target.closest('form[data-confirm]');
+                    if (!form || form.dataset.pbjConfirmed === '1') return;
+                    event.preventDefault();
+                    pendingForm = form;
+                    msgEl.textContent = form.getAttribute('data-confirm') || 'Are you sure?';
+                    overlay.style.display = 'flex';
+                });
+
+                okBtn.addEventListener('click', function () {
+                    if (!pendingForm) return;
+                    const form = pendingForm;
+                    // Mark as confirmed and dispatch a real submit so native form handling
+                    // (method spoofing, validation) runs exactly as a normal submit would.
+                    form.dataset.pbjConfirmed = '1';
+                    overlay.style.display = 'none';
+                    pendingForm = null;
+                    if (typeof form.requestSubmit === 'function') {
+                        form.requestSubmit();
+                    } else {
+                        form.submit();
+                    }
+                });
+
+                cancelBtn.addEventListener('click', close);
+                overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+                document.addEventListener('keydown', function (e) {
+                    if (e.key === 'Escape' && overlay.style.display === 'flex') close();
+                });
+            })();
+        </script>
+        
+        <script>
+            // Mobile Sidenav Backdrop & Scroll Lock Setup
+            (function () {
+                document.addEventListener('DOMContentLoaded', function () {
+                    const backdrop = document.createElement('div');
+                    backdrop.className = 'sidenav-backdrop d-xl-none';
+                    document.body.appendChild(backdrop);
+
+                    backdrop.addEventListener('click', function () {
+                        const closeBtn = document.getElementById('iconSidenav') || document.getElementById('iconNavbarSidenav');
+                        if (closeBtn) {
+                            closeBtn.click();
+                        }
+                    });
+
+                    // Sync body's g-sidenav-pinned class to html element for robust iOS scroll locking
+                    const observer = new MutationObserver(function (mutations) {
+                        mutations.forEach(function (mutation) {
+                            if (mutation.attributeName === 'class') {
+                                const isPinned = document.body.classList.contains('g-sidenav-pinned');
+                                document.documentElement.classList.toggle('g-sidenav-pinned-html', isPinned);
+                            }
+                        });
+                    });
+                    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+                });
             })();
         </script>
     </body>

@@ -21,7 +21,8 @@ class EquipmentController extends Controller
         $validated = $request->validate([
             'rental_price_per_unit' => ['required', 'numeric', 'min:0', 'max:99999'],
             'deposit_amount' => ['nullable', 'numeric', 'min:0', 'max:99999'],
-            'reorder_point' => ['required', 'integer', 'min:0', 'max:10000'],
+            'reorder_point' => ['nullable', 'integer', 'min:0', 'max:10000'],
+            'max_rental_quantity_per_booking' => ['required', 'integer', 'min:1', 'max:100'],
             'available_quantity' => ['required', 'integer', 'min:0', 'max:100000'],
             'damaged_quantity' => ['nullable', 'integer', 'min:0'],
             'lost_quantity' => ['nullable', 'integer', 'min:0'],
@@ -39,6 +40,7 @@ class EquipmentController extends Controller
                 'deposit_amount' => $validated['deposit_amount'] ?? 0,
                 'requires_deposit' => ($validated['deposit_amount'] ?? 0) > 0,
                 'is_available_for_rent' => $request->boolean('is_available_for_rent', true),
+                'max_rental_quantity_per_booking' => $validated['max_rental_quantity_per_booking'],
             ]);
 
             $newTotal = $newAvailable
@@ -51,7 +53,7 @@ class EquipmentController extends Controller
                 'available_quantity' => $newAvailable,
                 'damaged_quantity' => $validated['damaged_quantity'] ?? $inventory->damaged_quantity,
                 'lost_quantity' => $validated['lost_quantity'] ?? $inventory->lost_quantity,
-                'reorder_point' => $validated['reorder_point'],
+                'reorder_point' => $validated['reorder_point'] ?? $inventory->reorder_point,
                 'total_quantity' => $newTotal,
                 'last_inventory_count_at' => now(),
                 'last_inventory_count_by' => $request->user()->id,

@@ -6,6 +6,7 @@ use App\Models\Court;
 use App\Models\CourtPricingRule;
 use App\Models\User;
 use App\Services\AuditService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -117,5 +118,112 @@ class CourtController extends Controller
     private function authorizeManage(Request $request): void
     {
         abort_unless($request->user()->hasAnyRole([User::ROLE_SUPER_ADMIN, User::ROLE_ADMIN]), 403);
+    }
+
+    public function getRates(Court $court): JsonResponse
+    {
+        $rates = DB::table('court_pricing_rules')
+            ->where('court_id', $court->id)
+            ->where('is_active', true)
+            ->orderBy('priority')
+            ->get();
+
+        return response()->json($rates);
+    }
+
+    public function addRate(Request $request, Court $court): JsonResponse
+    {
+        $this->authorizeManage($request);
+
+        $validated = $request->validate([
+            'day_of_week' => ['nullable', 'integer', 'min:0', 'max:6'],
+            'start_time' => ['required', 'date_format:H:i'],
+            'end_time' => ['required', 'date_format:H:i', 'different:start_time'],
+            'base_price' => ['required', 'numeric', 'min:0'],
+            'effective_to' => ['nullable', 'date'],
+        ]);
+
+        $id = DB::table('court_pricing_rules')->insertGetId([
+            'court_id' => $court->id,
+            'rule_name' => 'Custom Rate',
+            'start_time' => $validated['start_time'].':00',
+            'end_time' => $validated['end_time'].':00',
+            'base_price' => $validated['base_price'],
+            'day_of_week' => $validated['day_of_week'],
+            'is_holiday' => false,
+            'is_peak_season' => false,
+            'priority' => 10,
+            'is_active' => true,
+            'effective_from' => now()->toDateString(),
+            'effective_to' => $validated['effective_to'],
+            'created_by' => $request->user()->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->audit->log('court.rate.added', 'courts', $court->id, $request->user(), $validated);
+
+        return response()->json(['success' => true, 'id' => $id]);
+    }
+
+    public function updateRate(Request $request, $rateId): JsonResponse
+    {
+        $this->authorizeManage($request);
+
+        $validated = $request->validate([
+            'day_of_week' => ['nullable', 'integer', 'min:0', 'max:6'],
+            'start_time' => ['required', 'date_format:H:i'],
+            'end_time' => ['required', 'date_format:H:i', 'different:start_time'],
+            'base_price' => ['required', 'numeric', 'min:0'],
+            'effective_to' => ['nullable', 'date'],
+        ]);
+
+        $rule = DB::table('court_pricing_rules')->where('id', $rateId)->first();
+        if (!$rule) {
+            return response()->json(['error' => 'Rate rule not found'], 404);
+        }
+
+        if (is_null($rule->start_time)) {
+            return response()->json(['error' => 'Cannot edit the standard baseline rate rule directly.'], 400);
+        }
+
+        DB::table('court_pricing_rules')
+            ->where('id', $rateId)
+            ->update([
+                'day_of_week' => $validated['day_of_week'],
+                'start_time' => $validated['start_time'].':00',
+                'end_time' => $validated['end_time'].':00',
+                'base_price' => $validated['base_price'],
+                'effective_to' => $validated['effective_to'],
+                'updated_at' => now(),
+            ]);
+
+        $this->audit->log('court.rate.updated', 'courts', $rule->court_id, $request->user(), $validated);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function deleteRate(Request $request, $rateId): JsonResponse
+    {
+        $this->authorizeManage($request);
+
+        $rule = DB::table('court_pricing_rules')->where('id', $rateId)->first();
+        if (!$rule) {
+            return response()->json(['error' => 'Rate rule not found'], 404);
+        }
+
+        if (is_null($rule->start_time)) {
+            return response()->json(['error' => 'Cannot delete the standard baseline rate rule.'], 400);
+        }
+
+        DB::table('court_pricing_rules')->where('id', $rateId)->delete();
+
+        $this->audit->log('court.rate.deleted', 'courts', $rule->court_id, $request->user(), [
+            'rule_name' => $rule->rule_name,
+            'start_time' => $rule->start_time,
+            'end_time' => $rule->end_time,
+        ]);
+
+        return response()->json(['success' => true]);
     }
 }

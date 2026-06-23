@@ -13,7 +13,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['email', 'mobile_number', 'photo_path', 'password', 'is_active'])]
+#[Fillable(['email', 'mobile_number', 'photo_path', 'password', 'is_active', 'rating', 'wins', 'losses', 'matches_played'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -51,5 +51,48 @@ class User extends Authenticatable
     public function endUserProfile(): HasOne
     {
         return $this->hasOne(EndUserProfile::class);
+    }
+
+    public function staffProfile(): HasOne
+    {
+        return $this->hasOne(StaffProfile::class);
+    }
+
+    public function adminProfile(): HasOne
+    {
+        return $this->hasOne(AdminProfile::class);
+    }
+
+    public function getWinRateAttribute(): float
+    {
+        return $this->matches_played > 0 
+            ? round(($this->wins / $this->matches_played) * 100, 1) 
+            : 0.0;
+    }
+
+    public function getBadgeNameAttribute(): string
+    {
+        $r = $this->rating;
+        return match (true) {
+            $r >= 1300 => 'Grandmaster',
+            $r >= 1200 => 'Elite',
+            $r >= 1100 => 'Pro',
+            $r >= 1050 => 'Advanced',
+            $r >= 1000 => 'Intermediate',
+            default => 'Beginner',
+        };
+    }
+
+    public function getBadgeEmojiAttribute(): string
+    {
+        $r = $this->rating;
+        return match (true) {
+            $r >= 1300 => '👑',
+            $r >= 1200 => '💎',
+            $r >= 1100 => '🔥',
+            $r >= 1050 => '⭐',
+            $r >= 1000 => '🥈',
+            default => '🥉',
+        };
     }
 }

@@ -146,10 +146,10 @@ class CancellationController extends Controller
             User::ROLE_SUPER_ADMIN,
             User::ROLE_ADMIN,
             User::ROLE_LOCATION_MANAGER,
-            User::ROLE_STAFF
+            User::ROLE_STAFF,
         ]);
 
-        if (!$isStaffOrAdmin) {
+        if (! $isStaffOrAdmin) {
             $this->notifications->notifyStaffAndAdmins(
                 'Reservation Cancelled',
                 "Client cancelled booking {$reservation->reservation_code}. Reason: {$validated['reason_text']}.",

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Reservation;
 use App\Services\AuditService;
+use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -188,8 +189,8 @@ class RescheduleController extends Controller
             'new_schedule' => ['date' => $newDate, 'start_time' => $newStart, 'end_time' => $newEnd],
         ]);
 
-        if (!$isStaffOrAdmin) {
-            app(\App\Services\NotificationService::class)->notifyStaffAndAdmins(
+        if (! $isStaffOrAdmin) {
+            app(NotificationService::class)->notifyStaffAndAdmins(
                 'Reservation Rescheduled',
                 "Client rescheduled booking {$reservation->reservation_code} to {$newDate} at {$newStart} - {$newEnd}.",
                 $reservation

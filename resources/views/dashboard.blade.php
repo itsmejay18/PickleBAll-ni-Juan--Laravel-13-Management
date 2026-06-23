@@ -24,7 +24,7 @@
             <div class="row">
                 @foreach ($metrics as $metric)
                     @php($style = $statStyles[$loop->index] ?? $statStyles[0])
-                    <div class="col-lg-6 col-md-6 col-12 {{ $loop->index > 1 ? 'mt-4' : ($loop->index % 2 === 1 ? 'mt-4 mt-md-0' : '') }}">
+                    <div class="col-lg-6 col-md-6 col-6 {{ $loop->index > 1 ? 'mt-4' : '' }}">
                         <div class="card pbj-stat-card">
                             <span class="mask bg-{{ $style['color'] }} opacity-10 border-radius-lg"></span>
                             <div class="card-body p-3 position-relative">

@@ -35,4 +35,8 @@
             <button type="submit" class="btn bg-gradient-info mb-0">Log in</button>
         </div>
     </form>
+
+    <div class="text-center mt-4">
+        <p class="text-sm mb-0">Don't have an account? <a href="{{ route('register') }}" class="text-info font-weight-bold">Register</a></p>
+    </div>
 </x-guest-layout>

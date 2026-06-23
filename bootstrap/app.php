@@ -31,6 +31,10 @@ return Application::configure(basePath: dirname(__DIR__))
             SecurityHeaders::class,
         ]);
 
+        $middleware->validateCsrfTokens(except: [
+            'payments/xpaylink/webhook',
+        ]);
+
         // Convenient role/permission gates on routes.
         $middleware->alias([
             'role' => RoleMiddleware::class,

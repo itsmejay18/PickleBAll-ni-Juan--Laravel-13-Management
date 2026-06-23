@@ -27,7 +27,7 @@
                                 <th class="text-end text-uppercase text-secondary text-xxs font-weight-bolder">Rate</th>
                                 <th class="text-end text-uppercase text-secondary text-xxs font-weight-bolder">Deposit</th>
                                 <th class="text-center text-uppercase text-secondary text-xxs font-weight-bolder">Stock</th>
-                                <th class="text-center text-uppercase text-secondary text-xxs font-weight-bolder">Reorder</th>
+                                <th class="text-center text-uppercase text-secondary text-xxs font-weight-bolder">Max Limit</th>
                                 <th class="text-end text-uppercase text-secondary text-xxs font-weight-bolder pe-3">Actions</th>
                             </tr>
                         </thead>
@@ -56,13 +56,17 @@
                                         </span>
                                         <p class="text-xs text-secondary mb-0 mt-1">{{ $item['reserved_quantity'] }} reserved</p>
                                     </td>
-                                    <td class="text-center text-sm">{{ $item['reorder_point'] }}</td>
+                                    <td class="text-center text-sm">{{ $item['max_rental_quantity_per_booking'] }}</td>
                                     <td class="text-end pe-3">
-                                        <button type="button" class="btn btn-link text-info p-1 mb-0"
-                                            data-bs-toggle="modal" data-bs-target="#equipmentModal"
-                                            onclick='pbjOpenEquipmentModal(@json($item))'>
-                                            <i class="fas fa-pen me-1"></i>Edit
-                                        </button>
+                                         <button type="button" class="btn btn-link text-warning p-1 mb-0"
+                                             onclick='pbjOpenEquipmentRatesModal(@json($item))'>
+                                             <i class="fas fa-tags me-1"></i>Rates
+                                         </button>
+                                         <button type="button" class="btn btn-link text-info p-1 mb-0"
+                                             data-bs-toggle="modal" data-bs-target="#equipmentModal"
+                                             onclick='pbjOpenEquipmentModal(@json($item))'>
+                                             <i class="fas fa-pen me-1"></i>Edit
+                                         </button>
                                         <form method="POST" action="{{ route('equipment.destroy', $item['inventory_id']) }}" class="d-inline"
                                             onsubmit="return confirm('Remove this stock entry? Reservations holding units must be cleared first.');">
                                             @csrf
@@ -112,21 +116,24 @@
                                 <input type="text" name="name" id="equipment_name" class="form-control" required maxlength="100" placeholder="Pickleball Paddle">
                             </div>
 
-                            <div class="col-md-3 mb-3">
-                                <label class="form-label text-xs">Rental price (PHP)</label>
-                                <input type="number" name="rental_price_per_unit" id="equipment_price" class="form-control" required min="0" step="0.01" value="100">
-                            </div>
-                            <div class="col-md-3 mb-3">
-                                <label class="form-label text-xs">Deposit (PHP)</label>
-                                <input type="number" name="deposit_amount" id="equipment_deposit" class="form-control" min="0" step="0.01" value="0">
-                            </div>
+                             <div class="col-md-3 mb-3" id="equipment_price_wrapper">
+                                 <label class="form-label text-xs">Rental price (PHP)</label>
+                                 <input type="number" name="rental_price_per_unit" id="equipment_price" class="form-control" required min="0" step="0.01" value="100">
+                             </div>
+                             <div class="col-md-3 mb-3" id="equipment_deposit_wrapper">
+                                 <label class="form-label text-xs">Deposit (PHP)</label>
+                                 <input type="number" name="deposit_amount" id="equipment_deposit" class="form-control" min="0" step="0.01" value="0">
+                             </div>
+                             <input type="hidden" name="rental_price_per_unit" id="equipment_price_hidden" disabled>
+                             <input type="hidden" name="deposit_amount" id="equipment_deposit_hidden" disabled>
+
                             <div class="col-md-3 mb-3" id="equipment_quantity_wrapper">
                                 <label class="form-label text-xs">Quantity to add</label>
                                 <input type="number" name="quantity" id="equipment_quantity" class="form-control" min="1" value="1">
                             </div>
                             <div class="col-md-3 mb-3">
-                                <label class="form-label text-xs">Low-stock threshold</label>
-                                <input type="number" name="reorder_point" id="equipment_reorder_point" class="form-control" required min="0" value="5">
+                                <label class="form-label text-xs">Max limit per booking</label>
+                                <input type="number" name="max_rental_quantity_per_booking" id="equipment_max_limit" class="form-control" required min="1" value="4">
                             </div>
 
                             {{-- Edit-only fields --}}
@@ -181,7 +188,7 @@
             document.getElementById('equipment_price').value = '100';
             document.getElementById('equipment_deposit').value = '0';
             document.getElementById('equipment_quantity').value = '1';
-            document.getElementById('equipment_reorder_point').value = '5';
+            document.getElementById('equipment_max_limit').value = '4';
 
             if (item && item.inventory_id) {
                 form.action = "{{ url('/equipment') }}/" + item.inventory_id;
@@ -194,9 +201,15 @@
                 nameWrapper.style.display = 'none';
                 qtyWrapper.style.display = 'none';
 
+                // Disable add-only fields so their `required`/empty state can't
+                // block submission while hidden (a hidden required field throws
+                // "invalid form control is not focusable" and cancels the submit).
+                ['equipment_name','equipment_location_id','equipment_quantity','equipment_description']
+                    .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; });
+
                 document.getElementById('equipment_price').value = item.rental_price_per_unit;
                 document.getElementById('equipment_deposit').value = item.deposit_amount;
-                document.getElementById('equipment_reorder_point').value = item.reorder_point;
+                document.getElementById('equipment_max_limit').value = item.max_rental_quantity_per_booking;
                 document.getElementById('equipment_available').value = item.available_quantity;
                 document.getElementById('equipment_damaged').value = item.damaged_quantity;
                 document.getElementById('equipment_lost').value = item.lost_quantity;
@@ -211,6 +224,11 @@
                 locationWrapper.style.display = '';
                 nameWrapper.style.display = '';
                 qtyWrapper.style.display = '';
+
+                // Re-enable add-only fields (they may have been disabled by a
+                // previous edit) so they validate and submit when adding stock.
+                ['equipment_name','equipment_location_id','equipment_quantity','equipment_description']
+                    .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = false; });
             }
         }
     </script>

@@ -13,7 +13,19 @@ export default {
         extend: {
             fontFamily: {
                 sans: ['Figtree', ...defaultTheme.fontFamily.sans],
+                outfit: ['Outfit', 'sans-serif'],
             },
+            colors: {
+                brand: {
+                    green: '#18a37f',
+                    greenLight: '#80e6c6',
+                    ink: '#0d1117',
+                    slate: '#080c12',
+                    card: '#161b22',
+                    rose: '#f5365c',
+                    roseLight: '#f5808f'
+                }
+            }
         },
     },
 

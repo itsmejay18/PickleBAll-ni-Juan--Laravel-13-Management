@@ -20,8 +20,15 @@
                     <div class="container">
                         <div class="row">
                             <div class="col-xl-4 col-lg-5 col-md-7 d-flex flex-column mx-auto">
-                                <div class="card card-plain mt-8">
-                                    <div class="card-header pb-0 text-left bg-transparent">
+                                <div class="card card-plain mt-lg-8 mt-4">
+                                    <!-- Mobile-only brand header with curved image background -->
+                                    <div class="d-block d-md-none text-center mb-4 position-relative" style="background-image: linear-gradient(135deg, rgba(15, 23, 42, 0.4), rgba(15, 23, 42, 0.75)), url('{{ asset('soft-ui-dashboard-main/assets/img/curved-images/curved6.jpg') }}'); background-size: cover; background-position: center; border-radius: 16px; padding: 2.5rem 1rem; box-shadow: 0 10px 30px rgba(0,0,0,0.18); margin-bottom: 2rem;">
+                                        <img src="{{ asset('images/branding.png') }}" alt="Pickle Ballan ni Juan" style="width: 110px; height: 110px; border-radius: 50%; box-shadow: 0 8px 24px rgba(0,0,0,0.22); margin-bottom: 1rem; border: 3px solid rgba(255,255,255,0.25); object-fit: cover;">
+                                        <h3 class="font-weight-bolder text-white mb-1">Pickle Ballan ni Juan</h3>
+                                        <p class="text-white opacity-9 text-xs mb-0">Court reservation and management system</p>
+                                    </div>
+
+                                    <div class="card-header pb-0 text-left bg-transparent d-none d-md-block">
                                         <div class="d-flex align-items-center mb-2">
                                             <h3 class="font-weight-bolder text-info text-gradient mb-0">Pickle Ballan ni Juan</h3>
                                         </div>

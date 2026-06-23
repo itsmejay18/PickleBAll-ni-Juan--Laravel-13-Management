@@ -8,6 +8,7 @@ use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\NotificationService;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -44,7 +45,38 @@ class ModulePageController extends Controller
             'equipment.*' => ['nullable', 'integer', 'min:0', 'max:20'],
         ]);
 
+        self::releaseExpiredReservations();
+
         $user = $request->user();
+
+        // Spam prevention: Limit active pending unpaid bookings (skip for staff/admins)
+        if ($user && ! $user->hasAnyRole([User::ROLE_SUPER_ADMIN, User::ROLE_ADMIN, User::ROLE_LOCATION_MANAGER, User::ROLE_STAFF])) {
+            $pendingReservationsCount = Reservation::query()
+                ->where('user_id', $user->id)
+                ->whereIn('status', ['pending_payment', 'payment_verification'])
+                ->where('payment_status', 'unpaid')
+                ->where(function ($q) {
+                    $q->whereNull('expires_at')
+                      ->orWhere('expires_at', '>', now());
+                })
+                ->count();
+
+            $timeoutMinutes = (int) SystemSetting::value('booking_timeout_minutes', '3');
+            $opThreshold = now()->subMinutes($timeoutMinutes);
+            $pendingOpenPlayCount = DB::table('open_play_registrations')
+                ->where('user_id', $user->id)
+                ->where('status', 'pending_payment')
+                ->where('registered_at', '>', $opThreshold)
+                ->count();
+
+            $totalPending = $pendingReservationsCount + $pendingOpenPlayCount;
+            $maxLimit = (int) SystemSetting::value('max_pending_bookings_limit', '1');
+
+            if ($totalPending >= $maxLimit) {
+                return back()->withInput()->with('error', "You have reached the maximum limit of {$maxLimit} pending unpaid bookings. Please complete payment for your existing bookings first.");
+            }
+        }
+
         $date = $validated['reservation_date'];
         $startTime = $this->normalizeTime($validated['start_time']);
         $endTime = $this->normalizeTime($validated['end_time']);
@@ -84,8 +116,18 @@ class ModulePageController extends Controller
             return back()->withInput()->with('error', 'That court is blocked for maintenance in that time window.');
         }
 
-        $rate = $this->courtRate($court->id, $date, $startTime);
-        $courtSubtotal = round($rate * $hours, 2);
+        if ($this->courtHasOpenPlay($court->location_id, $date, $startTime, $endTime)) {
+            return back()->withInput()->with('error', 'That court is reserved for Open Play in that time window.');
+        }
+
+        $courtSubtotal = 0.0;
+        $startSecs = strtotime($date.' '.$startTime);
+        for ($i = 0; $i < $hours; $i++) {
+            $slotStart = date('H:i:00', $startSecs + ($i * 3600));
+            $slotRate = $this->getSlotPrice($court->id, $date, $slotStart);
+            $courtSubtotal += $slotRate;
+        }
+        $rate = $courtSubtotal / $hours;
         $requestedEquipment = collect($validated['equipment'] ?? [])
             ->map(fn ($quantity) => (int) $quantity)
             ->filter(fn ($quantity) => $quantity > 0);
@@ -217,11 +259,12 @@ class ModulePageController extends Controller
                     'created_at' => now(),
                     'updated_at' => now(),
                     'deleted_at' => null,
+                    'expires_at' => now()->addMinutes((int) SystemSetting::value('booking_timeout_minutes', '3')),
+                    'terms_accepted_at' => now(),
                 ];
 
                 if (DB::getDriverName() === 'sqlite') {
                     $payload['total_hours'] = $hours;
-                    $payload['expires_at'] = now()->addHours(2);
                 }
 
                 $reservationId = DB::table('reservations')->insertGetId($payload);
@@ -301,14 +344,12 @@ class ModulePageController extends Controller
             return back()->withInput()->with('error', $e->getMessage());
         }
 
-
-
         return redirect()
             ->route('bookings.pay', $reservationCode)
             ->with('status', 'Booking '.$reservationCode.' created! Complete your payment below.');
     }
 
-    public function getPublicAvailability(Request $request): \Illuminate\Http\JsonResponse
+    public function getPublicAvailability(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'location_id' => ['required', 'integer', 'exists:locations,id'],
@@ -318,6 +359,8 @@ class ModulePageController extends Controller
         $locationId = (int) $validated['location_id'];
         $date = $validated['date'];
 
+        self::releaseExpiredReservations();
+
         $courts = DB::table('courts')
             ->where('location_id', $locationId)
             ->where('is_active', true)
@@ -325,34 +368,114 @@ class ModulePageController extends Controller
             ->orderBy('court_number')
             ->get();
 
-        $hours = [];
-        for ($h = 6; $h < 22; $h++) {
-            $start = sprintf('%02d:00', $h);
-            $end = sprintf('%02d:00', $h + 1);
-            $hours[] = [
-                'start' => $start,
-                'end' => $end,
-                'label' => date('g A', strtotime($start)).' - '.date('g A', strtotime($end)),
-            ];
+        $openTime = SystemSetting::value('public_playing_open_time', '07:00');
+        $closeTime = SystemSetting::value('public_playing_close_time', '00:00');
+
+        $baseDate = '2000-01-01';
+        $startTimestamp = strtotime($baseDate . ' ' . $openTime);
+        $endTimestamp = strtotime($baseDate . ' ' . $closeTime);
+
+        if ($endTimestamp <= $startTimestamp) {
+            $endTimestamp = strtotime($baseDate . ' ' . $closeTime . ' +1 day');
         }
+
+        $hours = [];
+        $current = $startTimestamp;
+        while ($current < $endTimestamp) {
+            $slotStart = date('H:i', $current);
+            $next = $current + 3600;
+            if ($next > $endTimestamp) {
+                break;
+            }
+            $slotEnd = date('H:i', $next);
+            
+            $startLabel = date('g:i A', $current);
+            if (date('i', $current) === '00') {
+                $startLabel = date('g A', $current);
+            }
+            $endLabel = date('g:i A', $next);
+            if (date('i', $next) === '00') {
+                $endLabel = date('g A', $next);
+            }
+
+            $hours[] = [
+                'start' => $slotStart,
+                'end' => $slotEnd,
+                'label' => $startLabel . ' - ' . $endLabel,
+            ];
+            $current = $next;
+        }
+
+        $openPlayEvent = DB::table('open_play_events')
+            ->where('location_id', $locationId)
+            ->whereDate('event_date', $date)
+            ->where('status', '!=', 'cancelled')
+            ->first();
 
         $results = [];
         foreach ($courts as $court) {
             $courtAvailability = [];
             foreach ($hours as $slot) {
                 $isOpen = $this->courtIsOpen($court->id, $date, $slot['start'].':00', $slot['end'].':00');
-                $isBooked = $this->courtIsBooked($court->id, $date, $slot['start'].':00', $slot['end'].':00');
+                $end = $slot['end'].':00' === '00:00:00' ? '24:00:00' : $slot['end'].':00';
+                $booking = DB::table('reservations')
+                    ->where('court_id', $court->id)
+                    ->where('reservation_date', $date)
+                    ->whereNull('deleted_at')
+                    ->whereNotIn('status', ['cancelled', 'no_show', 'refunded'])
+                    ->where('start_time', '<', $end)
+                    ->whereRaw("(CASE WHEN end_time = '00:00:00' THEN '24:00:00' ELSE end_time END) > ?", [$slot['start'].':00'])
+                    ->first();
+
                 $isMaintenance = $this->courtIsUnderMaintenance($court->id, $date, $slot['start'].':00', $slot['end'].':00');
 
-                $available = $isOpen && !$isBooked && !$isMaintenance;
+                $isOpenPlay = false;
+                if ($openPlayEvent) {
+                    $slotStartSec = strtotime('2000-01-01 ' . $slot['start']);
+                    $slotEndSec = strtotime('2000-01-01 ' . $slot['end']);
+                    $opStartSec = strtotime('2000-01-01 ' . $openPlayEvent->start_time);
+                    $opEndSec = strtotime('2000-01-01 ' . $openPlayEvent->end_time);
+                    $isOpenPlay = ($slotStartSec < $opEndSec && $slotEndSec > $opStartSec);
+                }
 
-                $courtAvailability[] = [
+                $reason = 'Open';
+                $expiresIn = null;
+                $expiresAt = null;
+
+                if ($isOpenPlay) {
+                    $reason = 'Reserved for Open Play';
+                } elseif (!$isOpen) {
+                    $reason = 'Closed';
+                } elseif ($isMaintenance) {
+                    $reason = 'Maintenance';
+                } elseif ($booking) {
+                    if (in_array($booking->status, ['pending_payment', 'payment_verification'], true)) {
+                        $reason = 'Ongoing Payment';
+                        $expiresIn = $booking->expires_at ? max(0, strtotime($booking->expires_at) - time()) : null;
+                        $expiresAt = $booking->expires_at ? (strtotime($booking->expires_at) * 1000) : null;
+                    } else {
+                        $reason = 'Booked';
+                    }
+                }
+
+                $available = $isOpen && !$booking && !$isMaintenance && !$isOpenPlay;
+
+                $slotData = [
                     'start' => $slot['start'],
                     'end' => $slot['end'],
                     'label' => $slot['label'],
                     'available' => $available,
-                    'reason' => !$isOpen ? 'Closed' : ($isMaintenance ? 'Maintenance' : ($isBooked ? 'Booked' : 'Open')),
+                    'reason' => $reason,
                 ];
+
+                if ($expiresIn !== null) {
+                    $slotData['expires_in'] = $expiresIn;
+                }
+                if ($expiresAt !== null) {
+                    $slotData['expires_at'] = $expiresAt;
+                }
+
+                $courtAvailability[] = $slotData;
             }
 
             $results[] = [
@@ -370,8 +493,33 @@ class ModulePageController extends Controller
         ]);
     }
 
+    public function calculatePrice(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'court_id' => ['required', 'integer', 'exists:courts,id'],
+            'reservation_date' => ['required', 'date'],
+            'start_time' => ['required', 'date_format:H:i'],
+            'duration' => ['required', 'integer', 'min:1', 'max:4'],
+        ]);
+
+        $courtId = (int) $validated['court_id'];
+        $date = $validated['reservation_date'];
+        $startTime = $this->normalizeTime($validated['start_time']);
+        
+        $duration = (int) $validated['duration'];
+        $startSecs = strtotime($date.' '.$startTime);
+        $endSecs = $startSecs + ($duration * 3600);
+        $endTime = date('H:i:00', $endSecs);
+
+        $breakdown = $this->getPriceBreakdown($courtId, $date, $startTime, $endTime);
+
+        return response()->json($breakdown);
+    }
+
     public function showPaymentPage(string $reservationCode): View|RedirectResponse
     {
+        self::releaseExpiredReservations();
+
         $user = auth()->user();
 
         $reservation = DB::table('reservations as r')
@@ -389,6 +537,8 @@ class ModulePageController extends Controller
                 'r.grand_total',
                 'r.status',
                 'r.payment_status',
+                'r.expires_at',
+                'r.court_id',
                 'c.court_number',
                 'c.court_name',
                 'l.name as location_name',
@@ -405,10 +555,24 @@ class ModulePageController extends Controller
                 ->with('status', 'Your payment is already submitted or confirmed.');
         }
 
+        $priceBreakdown = $this->getPriceBreakdown((int) $reservation->court_id, $reservation->reservation_date, $reservation->start_time, $reservation->end_time);
+
         $ownerGcashNumber = $this->ownerGcashNumber();
         $ownerGcashQr = DB::table('system_settings')->where('setting_key', 'owner_gcash_qr_path')->value('setting_value') ?: null;
 
-        return view('booking.pay', compact('reservation', 'ownerGcashNumber', 'ownerGcashQr'));
+        $xpaylinkEnabled = filter_var(SystemSetting::value('xpaylink_enabled', 'false'), FILTER_VALIDATE_BOOLEAN);
+        $xpaylinkPublicKey = SystemSetting::value('xpaylink_public_key');
+        $xpaylinkEndpoint = SystemSetting::value('xpaylink_endpoint', 'https://synthwave.space/api/create-session.php');
+
+        return view('booking.pay', compact(
+            'reservation',
+            'ownerGcashNumber',
+            'ownerGcashQr',
+            'xpaylinkEnabled',
+            'xpaylinkPublicKey',
+            'xpaylinkEndpoint',
+            'priceBreakdown'
+        ));
     }
 
     public function storeCourt(Request $request): RedirectResponse
@@ -531,7 +695,8 @@ class ModulePageController extends Controller
             'rental_price_per_unit' => ['required', 'numeric', 'min:0', 'max:99999'],
             'deposit_amount' => ['nullable', 'numeric', 'min:0', 'max:99999'],
             'quantity' => ['required', 'integer', 'min:1', 'max:10000'],
-            'reorder_point' => ['required', 'integer', 'min:0', 'max:10000'],
+            'reorder_point' => ['nullable', 'integer', 'min:0', 'max:10000'],
+            'max_rental_quantity_per_booking' => ['required', 'integer', 'min:1', 'max:100'],
         ]);
 
         $location = DB::table('locations')
@@ -559,6 +724,7 @@ class ModulePageController extends Controller
                         'deposit_amount' => $validated['deposit_amount'] ?? 0,
                         'requires_deposit' => ($validated['deposit_amount'] ?? 0) > 0,
                         'is_available_for_rent' => true,
+                        'max_rental_quantity_per_booking' => $validated['max_rental_quantity_per_booking'],
                         'updated_at' => now(),
                         'deleted_at' => null,
                     ]);
@@ -576,7 +742,7 @@ class ModulePageController extends Controller
                     'damage_replacement_cost' => null,
                     'is_available_for_rent' => true,
                     'requires_deposit' => ($validated['deposit_amount'] ?? 0) > 0,
-                    'max_rental_quantity_per_booking' => 10,
+                    'max_rental_quantity_per_booking' => $validated['max_rental_quantity_per_booking'],
                     'display_order' => (int) DB::table('equipment_types')->max('display_order') + 1,
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -595,7 +761,7 @@ class ModulePageController extends Controller
                     ->update([
                         'total_quantity' => $inventory->total_quantity + $validated['quantity'],
                         'available_quantity' => $inventory->available_quantity + $validated['quantity'],
-                        'reorder_point' => $validated['reorder_point'],
+                        'reorder_point' => $validated['reorder_point'] ?? 5,
                         'last_inventory_count_at' => now(),
                         'last_inventory_count_by' => $user->id,
                         'updated_at' => now(),
@@ -615,7 +781,7 @@ class ModulePageController extends Controller
                     'under_maintenance_quantity' => 0,
                     'last_inventory_count_at' => now(),
                     'last_inventory_count_by' => $user->id,
-                    'reorder_point' => $validated['reorder_point'],
+                    'reorder_point' => $validated['reorder_point'] ?? 5,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
@@ -907,7 +1073,16 @@ class ModulePageController extends Controller
         $validated = $request->validate([
             'owner_gcash_number' => ['required', 'string', 'max:20'],
             'owner_gcash_qr' => ['nullable', 'image', 'mimes:png,jpg,jpeg,webp', 'max:2048'],
+            'xpaylink_enabled' => ['nullable'],
+            'xpaylink_public_key' => ['nullable', 'string', 'max:255'],
+            'xpaylink_secret_key' => ['nullable', 'string', 'max:255'],
+            'xpaylink_endpoint' => ['nullable', 'url', 'max:500'],
+            'booking_timeout_minutes' => ['nullable', 'integer', 'min:1', 'max:60'],
+            'max_pending_bookings_limit' => ['nullable', 'integer', 'min:1', 'max:20'],
         ]);
+
+        $timeout = $validated['booking_timeout_minutes'] ?? 3;
+        $limit = $validated['max_pending_bookings_limit'] ?? 1;
 
         SystemSetting::set('owner_gcash_number', $validated['owner_gcash_number']);
 
@@ -917,14 +1092,78 @@ class ModulePageController extends Controller
             SystemSetting::set('owner_gcash_qr_path', $url);
         }
 
+        $xpaylinkEnabled = $request->has('xpaylink_enabled') ? 'true' : 'false';
+        SystemSetting::set('xpaylink_enabled', $xpaylinkEnabled);
+        SystemSetting::set('xpaylink_public_key', $validated['xpaylink_public_key'] ?? '');
+        SystemSetting::set('xpaylink_secret_key', $validated['xpaylink_secret_key'] ?? '');
+        SystemSetting::set('xpaylink_endpoint', $validated['xpaylink_endpoint'] ?? 'https://synthwave.space/api/create-session.php');
+        SystemSetting::set('booking_timeout_minutes', $timeout);
+        SystemSetting::set('max_pending_bookings_limit', $limit);
+
         $this->audit('settings.gcash.updated', 'system_settings', null, $user, [
             'owner_gcash_number' => $validated['owner_gcash_number'],
             'owner_gcash_qr_uploaded' => $request->hasFile('owner_gcash_qr'),
+            'xpaylink_enabled' => $xpaylinkEnabled,
+            'xpaylink_public_key' => $validated['xpaylink_public_key'] ?? '',
+            'xpaylink_secret_key' => $validated['xpaylink_secret_key'] ?? '',
+            'xpaylink_endpoint' => $validated['xpaylink_endpoint'] ?? '',
+            'booking_timeout_minutes' => $timeout,
+            'max_pending_bookings_limit' => $limit,
         ]);
 
         return redirect()
             ->route('modules.show', 'payments')
             ->with('status', 'GCash settings updated successfully.');
+    }
+
+    public function updatePublicSiteSettings(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        abort_unless($user && $user->hasRole(User::ROLE_SUPER_ADMIN), 403);
+
+        if ($request->has('public_playing_open_time')) {
+            $open = $request->input('public_playing_open_time');
+            if (preg_match('/(AM|PM)/i', $open)) {
+                $time = date('H:i', strtotime($open));
+                $request->merge(['public_playing_open_time' => $time]);
+            }
+        }
+        if ($request->has('public_playing_close_time')) {
+            $close = $request->input('public_playing_close_time');
+            if (preg_match('/(AM|PM)/i', $close)) {
+                $time = date('H:i', strtotime($close));
+                $request->merge(['public_playing_close_time' => $time]);
+            }
+        }
+
+        $validated = $request->validate([
+            'public_playing_open_time' => ['required', 'date_format:H:i'],
+            'public_playing_close_time' => ['required', 'date_format:H:i', 'different:public_playing_open_time'],
+            'public_facebook_url' => ['nullable', 'url', 'max:500'],
+            'public_contact_email' => ['nullable', 'email', 'max:255'],
+            'public_contact_phone' => ['nullable', 'string', 'max:30'],
+            'public_developer_name' => ['nullable', 'string', 'max:100'],
+            'public_developer_url' => ['nullable', 'url', 'max:500'],
+            'booking_terms_and_conditions' => ['nullable', 'string', 'max:5000'],
+        ]);
+
+        foreach ($validated as $key => $value) {
+            SystemSetting::set($key, $value);
+        }
+
+        $enableDelete = $request->has('enable_book_history_deletion') ? 'true' : 'false';
+        SystemSetting::set('enable_book_history_deletion', $enableDelete);
+        $validated['enable_book_history_deletion'] = $enableDelete;
+
+        $enableLunchBreak = $request->has('enable_lunch_break') ? 'true' : 'false';
+        SystemSetting::set('enable_lunch_break', $enableLunchBreak);
+        $validated['enable_lunch_break'] = $enableLunchBreak;
+
+        $this->audit('settings.public_site.updated', 'system_settings', null, $user, $validated);
+
+        return redirect()
+            ->route('modules.show', 'general-settings')
+            ->with('status', 'General settings updated successfully.');
     }
 
     /**
@@ -1177,6 +1416,61 @@ class ModulePageController extends Controller
                     ['feature' => 'Account lockout/reset', 'objective' => 'A6, A7', 'note' => 'Lock counters, reset links via email.'],
                 ],
             ],
+            'sales' => [
+                'title' => 'Sales',
+                'eyebrow' => 'Admin Module',
+                'description' => 'Full booking and sales history across all customers, with date filters and CSV or PDF export.',
+                'icon' => 'fa-cash-register',
+                'objectives' => 'O1-O2, O10, G1-G7',
+                'owner' => 'Super Admin, Admin',
+                'status' => 'Planned',
+                'cards' => [
+                    ['title' => 'Sales History', 'text' => 'Every approved booking and its payment in one place.', 'icon' => 'fa-receipt'],
+                    ['title' => 'Date Filters', 'text' => 'Slice sales by day, week, month, or a custom range.', 'icon' => 'fa-calendar-day'],
+                    ['title' => 'Export', 'text' => 'Download the filtered sales report as CSV or PDF.', 'icon' => 'fa-file-export'],
+                ],
+                'rows' => [
+                    ['feature' => 'Sales history', 'objective' => 'O1-O2', 'note' => 'All customer bookings and payments.'],
+                    ['feature' => 'CSV export', 'objective' => 'O10', 'note' => 'Spreadsheet-ready sales download.'],
+                    ['feature' => 'PDF export', 'objective' => 'O10', 'note' => 'Printable sales report.'],
+                ],
+            ],
+            'general-settings' => [
+                'title' => 'General Settings',
+                'eyebrow' => 'Admin Module',
+                'description' => 'System-wide configuration: opening time, floating contact links, and Book History bulk options.',
+                'icon' => 'fa-sliders-h',
+                'objectives' => 'L1-L4',
+                'owner' => 'Super Admin',
+                'status' => 'Planned',
+                'cards' => [
+                    ['title' => 'Opening Time', 'text' => 'Set the public playing hours shown to customers.', 'icon' => 'fa-clock'],
+                    ['title' => 'Contact Links', 'text' => 'Configure the floating Facebook, email, and phone links.', 'icon' => 'fa-address-book'],
+                    ['title' => 'Bulk Options', 'text' => 'Enable or disable delete and bulk-delete on Book History.', 'icon' => 'fa-trash-alt'],
+                ],
+                'rows' => [
+                    ['feature' => 'Opening time', 'objective' => 'L1', 'note' => 'Public playing open and close hours.'],
+                    ['feature' => 'Floating contact links', 'objective' => 'L2', 'note' => 'Facebook, email, phone, highlighted name.'],
+                    ['feature' => 'Bulk options', 'objective' => 'L3', 'note' => 'Delete and bulk-delete toggle for bookings.'],
+                ],
+            ],
+            'rates' => [
+                'title' => 'Rates Management',
+                'eyebrow' => 'Admin Module',
+                'description' => 'Configure standard base rates, peak season rules, and equipment rental rates for all branches.',
+                'icon' => 'fa-tags',
+                'objectives' => 'C1-C6, D2',
+                'owner' => 'Super Admin, Admin',
+                'status' => 'Planned',
+                'cards' => [
+                    ['title' => 'Court Pricing', 'text' => 'Set custom pricing rules and base hourly rates per court.', 'icon' => 'fa-table-tennis'],
+                    ['title' => 'Equipment Pricing', 'text' => 'Set daily or per-unit rental rates and deposit amounts.', 'icon' => 'fa-boxes'],
+                ],
+                'rows' => [
+                    ['feature' => 'Court pricing rules', 'objective' => 'C1-C6', 'note' => 'Standard, weekend, and holiday rates.'],
+                    ['feature' => 'Equipment pricing', 'objective' => 'D2', 'note' => 'Racket and ball rental prices.'],
+                ],
+            ],
         ];
     }
 
@@ -1199,6 +1493,9 @@ class ModulePageController extends Controller
             'receipts' => $this->receiptData($user),
             'reviews' => $this->reviewData($user),
             'users' => $this->userData($user),
+            'sales' => $this->receiptData($user),
+            'general-settings' => $this->generalSettingsData(),
+            'rates' => $this->ratesData($user),
             default => [],
         };
 
@@ -1370,6 +1667,51 @@ class ModulePageController extends Controller
     /**
      * @return array<string, mixed>
      */
+    private function ratesData(User $user): array
+    {
+        return [
+            'courts' => $this->courtData($user)['manageableCourts'] ?? [],
+            'equipment' => $this->equipmentData($user)['manageableEquipment'] ?? [],
+            'locationOptions' => $this->activeLocations(),
+            'canManageOperations' => $this->canManageOperations($user),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    /**
+     * Shared system-wide public site settings (opening time, floating contact links).
+     *
+     * @return array<string, string>
+     */
+    private function publicSiteSettingsValues(): array
+    {
+        return [
+            'public_playing_open_time' => SystemSetting::value('public_playing_open_time', '07:00'),
+            'public_playing_close_time' => SystemSetting::value('public_playing_close_time', '00:00'),
+            'public_facebook_url' => SystemSetting::value('public_facebook_url', 'https://www.facebook.com/profile.php?id=61584658084190'),
+            'public_contact_email' => SystemSetting::value('public_contact_email', 'cajpulido@yahoo.com'),
+            'public_contact_phone' => SystemSetting::value('public_contact_phone', '09383427139'),
+            'public_developer_name' => SystemSetting::value('public_developer_name', 'RestBack'),
+            'public_developer_url' => SystemSetting::value('public_developer_url', 'https://www.facebook.com/restback200/'),
+            'booking_terms_and_conditions' => SystemSetting::value('booking_terms_and_conditions', "IMPORTANT: No refunds will be issued under any circumstances unless court operations are suspended due to inclement weather (e.g. rain). Please ensure you send the exact GCash amount including decimal fractions. Failures to do so will result in booking cancellation without refund."),
+            'enable_lunch_break' => SystemSetting::value('enable_lunch_break', 'true'),
+        ];
+    }
+
+    /**
+     * Live data for the General Settings module page.
+     *
+     * @return array<string, mixed>
+     */
+    private function generalSettingsData(): array
+    {
+        return [
+            'publicSiteSettings' => $this->publicSiteSettingsValues(),
+        ];
+    }
+
     private function paymentData(User $user): array
     {
         $today = now()->toDateString();
@@ -1406,9 +1748,23 @@ class ModulePageController extends Controller
         $uploadReservations = $this->paymentUploadRows($user);
         $reviewPayments = $canReview ? $this->paymentReviewRows($user) : [];
 
+        $xpaylinkEnabled = SystemSetting::value('xpaylink_enabled', 'false');
+        $xpaylinkPublicKey = SystemSetting::value('xpaylink_public_key', '');
+        $xpaylinkSecretKey = SystemSetting::value('xpaylink_secret_key', '');
+        $xpaylinkEndpoint = SystemSetting::value('xpaylink_endpoint', 'https://synthwave.space/api/create-session.php');
+        $bookingTimeoutMinutes = SystemSetting::value('booking_timeout_minutes', '3');
+        $maxPendingBookingsLimit = SystemSetting::value('max_pending_bookings_limit', '1');
+
         return [
             'ownerGcashNumber' => $ownerGcashNumber,
             'ownerGcashQr' => $ownerGcashQr,
+            'xpaylinkEnabled' => $xpaylinkEnabled,
+            'xpaylinkPublicKey' => $xpaylinkPublicKey,
+            'xpaylinkSecretKey' => $xpaylinkSecretKey,
+            'xpaylinkEndpoint' => $xpaylinkEndpoint,
+            'bookingTimeoutMinutes' => $bookingTimeoutMinutes,
+            'maxPendingBookingsLimit' => $maxPendingBookingsLimit,
+            'publicSiteSettings' => $this->publicSiteSettingsValues(),
             'canReviewPayments' => $canReview,
             'paymentUploads' => $uploadReservations,
             'paymentReviews' => $reviewPayments,
@@ -1579,6 +1935,7 @@ class ModulePageController extends Controller
                 'et.rental_price_per_unit',
                 'et.deposit_amount',
                 'et.is_available_for_rent',
+                'et.max_rental_quantity_per_booking',
                 'l.name as location_name',
             ]);
 
@@ -1600,6 +1957,7 @@ class ModulePageController extends Controller
             'lost_quantity' => (int) $item->lost_quantity,
             'total_quantity' => (int) $item->total_quantity,
             'is_available_for_rent' => (bool) $item->is_available_for_rent,
+            'max_rental_quantity_per_booking' => (int) $item->max_rental_quantity_per_booking,
         ])->values()->all();
 
         return [
@@ -1722,6 +2080,40 @@ class ModulePageController extends Controller
                 $this->card('Cash revenue', $this->money($cashRevenue), 'Verified cash walk-in payments.', 'fa-cash-register'),
                 $this->card('Completed', (string) (clone $base)->where('r.status', 'completed')->count(), 'Walk-in sessions already closed.', 'fa-check-double'),
             ],
+            'bookingLocations' => $this->activeLocations(),
+            'bookingCourts' => $this->bookableCourts(),
+            'bookingEquipment' => $this->rentableEquipment(),
+            'locations' => $this->activeLocations(),
+            'rawReservations' => (clone $base)
+                ->orderByDesc('r.reservation_date')
+                ->orderByDesc('r.start_time')
+                ->limit(30)
+                ->get([
+                    'r.id',
+                    'r.reservation_code',
+                    'r.reservation_date',
+                    'r.start_time',
+                    'r.end_time',
+                    'r.status',
+                    'r.payment_status',
+                    'r.grand_total',
+                    'r.court_price_per_hour',
+                    'r.court_subtotal',
+                    'r.equipment_total',
+                    'r.special_requests',
+                    'c.id as court_id',
+                    'c.court_number',
+                    'c.court_name',
+                    'l.name as location_name',
+                    'eup.first_name',
+                    'eup.last_name',
+                    'u.email',
+                    'u.mobile_number',
+                ])
+                ->map(function ($res) {
+                    $res->customer_name = trim(($res->first_name ?? '').' '.($res->last_name ?? '')) ?: $res->email;
+                    return $res;
+                }),
             'rows' => $rows->map(function ($reservation) {
                 $customer = trim(($reservation->first_name ?? '').' '.($reservation->last_name ?? '')) ?: $reservation->email;
                 $owner = $this->userOwner($reservation->first_name, $reservation->last_name, $reservation->email, $reservation->photo_path);
@@ -1876,6 +2268,7 @@ class ModulePageController extends Controller
      */
     private function bookCourtData(): array
     {
+        self::releaseExpiredReservations();
         $today = now()->toDateString();
         $courts = DB::table('courts as c')
             ->join('locations as l', 'l.id', '=', 'c.location_id')
@@ -1896,6 +2289,7 @@ class ModulePageController extends Controller
             'bookingLocations' => $this->activeLocations(),
             'bookingCourts' => $this->bookableCourts(),
             'bookingEquipment' => $this->rentableEquipment(),
+            'publicSiteSettings' => $this->publicSiteSettingsValues(),
             'rows' => $courts->map(function ($court) use ($today) {
                 $rate = DB::table('court_pricing_rules')->where('court_id', $court->id)->where('is_active', true)->orderBy('priority')->value('base_price');
                 $booked = DB::table('reservations')->where('court_id', $court->id)->where('reservation_date', $today)->whereNull('deleted_at')->count();
@@ -1923,20 +2317,57 @@ class ModulePageController extends Controller
     private function receiptData(User $user): array
     {
         $base = $this->scopeByUser(
-            DB::table('payments as p')
-                ->join('reservations as r', 'r.id', '=', 'p.reservation_id')
+            DB::table('reservations as r')
                 ->join('courts as c', 'c.id', '=', 'r.court_id')
                 ->join('locations as l', 'l.id', '=', 'r.location_id')
                 ->join('users as u', 'u.id', '=', 'r.user_id')
                 ->leftJoin('end_user_profiles as eup', 'eup.user_id', '=', 'u.id')
-                ->whereIn('p.status', ['verified', 'refunded'])
+                ->leftJoin('payments as p', 'p.id', '=', DB::raw("(select pp.id from payments pp where pp.reservation_id = r.id order by (pp.status = 'verified') desc, pp.id desc limit 1)"))
                 ->whereNull('r.deleted_at'),
             'r',
             $user,
         );
 
+        $filter = request('filter');
+        if ($filter) {
+            if ($filter === 'today') {
+                $base->where('r.reservation_date', '=', now()->toDateString());
+            } elseif ($filter === 'yesterday') {
+                $base->where('r.reservation_date', '=', now()->subDay()->toDateString());
+            } elseif ($filter === 'last_week') {
+                $base->whereBetween('r.reservation_date', [
+                    now()->subDays(6)->toDateString(),
+                    now()->toDateString(),
+                ]);
+            } elseif ($filter === 'month') {
+                $base->whereBetween('r.reservation_date', [
+                    now()->subDays(29)->toDateString(),
+                    now()->toDateString(),
+                ]);
+            } elseif ($filter === 'last_month') {
+                $base->whereBetween('r.reservation_date', [
+                    now()->subMonth()->startOfMonth()->toDateString(),
+                    now()->subMonth()->endOfMonth()->toDateString(),
+                ]);
+            } elseif ($filter === 'custom') {
+                $startDate = request('start_date');
+                $endDate = request('end_date');
+                if ($startDate && $endDate) {
+                    $base->whereBetween('r.reservation_date', [
+                        $startDate,
+                        $endDate,
+                    ]);
+                } elseif ($startDate) {
+                    $base->where('r.reservation_date', '>=', $startDate);
+                } elseif ($endDate) {
+                    $base->where('r.reservation_date', '<=', $endDate);
+                }
+            }
+        }
+
         $rows = (clone $base)
-            ->orderByDesc('p.created_at')
+            ->orderBy('r.reservation_date', 'asc')
+            ->orderBy('r.start_time', 'asc')
             ->limit(100)
             ->get([
                 'r.id as reservation_id',
@@ -1949,6 +2380,8 @@ class ModulePageController extends Controller
                 'r.reservation_date',
                 'r.start_time',
                 'r.end_time',
+                'r.status as reservation_status',
+                'r.grand_total',
                 'c.court_number',
                 'l.name as location_name',
                 'eup.first_name',
@@ -1958,6 +2391,9 @@ class ModulePageController extends Controller
             ]);
 
         return [
+            'filter' => $filter,
+            'start_date' => request('start_date'),
+            'end_date' => request('end_date'),
             'cards' => [
                 $this->card('Paid bookings', (string) (clone $base)->where('p.status', 'verified')->count(), 'Confirmed bookings in history.', 'fa-check-circle'),
                 $this->card('Paid total', $this->money((clone $base)->where('p.status', 'verified')->sum('p.amount')), 'Total verified payment amount.', 'fa-wallet'),
@@ -1966,34 +2402,61 @@ class ModulePageController extends Controller
             'rows' => $rows->map(function ($payment) {
                 $customer = trim(($payment->first_name ?? '').' '.($payment->last_name ?? '')) ?: $payment->email;
                 $owner = $this->userOwner($payment->first_name, $payment->last_name, $payment->email, $payment->photo_path);
+                $schedule = $this->formatReservationSchedule($payment->reservation_date, $payment->start_time, $payment->end_time);
+                $status = $payment->status ?: $payment->reservation_status;
+                $amount = $payment->amount ?? $payment->grand_total ?? 0;
+                $reference = $payment->gcash_reference_number ?: ($payment->status ? 'cash' : '—');
 
                 return $this->row(
-                    $payment->payment_reference,
-                    $customer.' | '.$payment->reservation_code.' | '.$payment->location_name.' Court '.$payment->court_number.' | '.$payment->reservation_date.' '.$this->timeRange($payment->start_time, $payment->end_time).' | '.$this->money($payment->amount).' | Ref '.($payment->gcash_reference_number ?: 'cash'),
-                    ucfirst($payment->status),
-                    $this->statusProgress($payment->status),
+                    $payment->payment_reference ?: $payment->reservation_code,
+                    $customer.' | '.$payment->reservation_code.' | '.$payment->location_name.' Court '.$payment->court_number.' | '.$schedule.' | '.$this->money($amount).' | Ref '.$reference,
+                    ucfirst($status),
+                    $this->statusProgress($status),
                     'G1-G7, N6',
-                    $this->statusColor($payment->status),
+                    $this->statusColor($status),
                     [$owner],
                 );
             })->all(),
             'receiptsList' => $rows->map(function ($payment) {
                 $customer = trim(($payment->first_name ?? '').' '.($payment->last_name ?? '')) ?: $payment->email;
+                $status = $payment->status ?: $payment->reservation_status;
+                $amount = $payment->amount ?? $payment->grand_total ?? 0;
+
                 return [
                     'reservation_id' => $payment->reservation_id,
                     'reservation_code' => $payment->reservation_code,
-                    'payment_reference' => $payment->payment_reference,
+                    'payment_reference' => $payment->payment_reference ?: $payment->reservation_code,
                     'customer' => $customer,
                     'photo_url' => $this->profilePhotoUrl($payment->photo_path),
                     'court' => $payment->location_name.' Court '.$payment->court_number,
-                    'schedule' => $payment->reservation_date.' '.$this->timeRange($payment->start_time, $payment->end_time),
-                    'amount' => $this->money($payment->amount),
-                    'status' => ucfirst($payment->status),
-                    'color' => $this->statusColor($payment->status),
-                    'reference' => $payment->gcash_reference_number ?: 'cash',
+                    'schedule' => $this->formatReservationSchedule($payment->reservation_date, $payment->start_time, $payment->end_time),
+                    'amount' => $this->money($amount),
+                    'status' => ucfirst($status),
+                    'color' => $this->statusColor($status),
+                    'confirmable' => ! in_array(strtolower((string) $status), ['confirmed', 'checked_in', 'completed', 'ongoing', 'verified', 'refunded'], true),
+                    'reference' => $payment->gcash_reference_number ?: ($payment->status ? 'cash' : '—'),
                 ];
             })->all(),
         ];
+    }
+
+    private function formatReservationSchedule(string $date, string $start, string $end): string
+    {
+        $formattedDate = strtolower(date('F/d/Y', strtotime($date)));
+
+        $start_ts = strtotime($start);
+        $end_ts = strtotime($end);
+
+        $start_min = date('i', $start_ts);
+        $end_min = date('i', $end_ts);
+
+        $start_fmt = $start_min === '00' ? date('g', $start_ts) : date('g:i', $start_ts);
+        $start_am_pm = date('a', $start_ts);
+
+        $end_fmt = $end_min === '00' ? date('g', $end_ts) : date('g:i', $end_ts);
+        $end_am_pm = date('a', $end_ts);
+
+        return $formattedDate.' '.$start_fmt.$start_am_pm.'-'.$end_fmt.$end_am_pm;
     }
 
     /**
@@ -2336,6 +2799,10 @@ class ModulePageController extends Controller
         $startAt = strtotime($date.' '.$start);
         $endAt = strtotime($date.' '.$end);
 
+        if ($endAt <= $startAt) {
+            $endAt = strtotime($date.' '.$end.' +1 day');
+        }
+
         return round(($endAt - $startAt) / 3600, 2);
     }
 
@@ -2379,6 +2846,10 @@ class ModulePageController extends Controller
 
     private function courtIsOpen(int $courtId, string $date, string $startTime, string $endTime): bool
     {
+        if (!$this->isWithinOperatingHours($startTime, $endTime)) {
+            return false;
+        }
+
         $day = (int) date('w', strtotime($date));
         $schedule = DB::table('court_schedules')
             ->where('court_id', $courtId)
@@ -2390,38 +2861,213 @@ class ModulePageController extends Controller
             ->orderByDesc('effective_from')
             ->first();
 
-        if (! $schedule) {
-            return true;
-        }
-
-        if (! $schedule->is_available || $startTime < $schedule->open_time || $endTime > $schedule->close_time) {
-            return false;
-        }
-
-        if ($schedule->break_start_time && $schedule->break_end_time) {
-            return ! ($startTime < $schedule->break_end_time && $endTime > $schedule->break_start_time);
+        if ($schedule) {
+            if (!$schedule->is_available) {
+                return false;
+            }
+            if ($schedule->break_start_time && $schedule->break_end_time) {
+                $isLunchBreak = ($schedule->break_start_time === '12:00:00' && $schedule->break_end_time === '12:30:00');
+                if (!$isLunchBreak || filter_var(SystemSetting::value('enable_lunch_break', true), FILTER_VALIDATE_BOOLEAN)) {
+                    return ! ($startTime < $schedule->break_end_time && $endTime > $schedule->break_start_time);
+                }
+            }
         }
 
         return true;
     }
 
+    private function isWithinOperatingHours(string $startTime, string $endTime): bool
+    {
+        $openTime = SystemSetting::value('public_playing_open_time', '07:00');
+        $closeTime = SystemSetting::value('public_playing_close_time', '00:00');
+
+        $openMins = $this->timeToMinutes($openTime);
+        $closeMins = $this->timeToMinutes($closeTime);
+
+        if ($closeMins <= $openMins) {
+            $closeMins += 1440;
+        }
+
+        $startMins = $this->timeToMinutes($startTime);
+        $endMins = $this->timeToMinutes($endTime);
+
+        if ($startMins < $openMins) {
+            $startMins += 1440;
+        }
+        if ($endMins <= $openMins) {
+            $endMins += 1440;
+        }
+
+        return $startMins >= $openMins && $endMins <= $closeMins;
+    }
+
+    private function timeToMinutes(string $time): int
+    {
+        $time = trim($time);
+        if (preg_match('/(AM|PM)/i', $time)) {
+            $timestamp = strtotime('2000-01-01 ' . $time);
+            if ($timestamp !== false) {
+                return (int) date('H', $timestamp) * 60 + (int) date('i', $timestamp);
+            }
+        }
+        $parts = explode(':', $time);
+        return ((int) $parts[0]) * 60 + ((int) ($parts[1] ?? 0));
+    }
+
+    public static function releaseExpiredReservations()
+    {
+        $threshold = now();
+        $reservations = Reservation::query()
+            ->whereIn('status', ['pending_payment', 'payment_verification'])
+            ->where('payment_status', 'unpaid')
+            ->whereNotNull('expires_at')
+            ->where('expires_at', '<=', $threshold)
+            ->get();
+
+        if ($reservations->isEmpty()) {
+            return;
+        }
+
+        $system = User::query()->role(User::ROLE_SUPER_ADMIN)->first();
+        $inventory = app(\App\Services\InventoryService::class);
+        $audit = app(\App\Services\AuditService::class);
+        $notifications = app(\App\Services\NotificationService::class);
+
+        foreach ($reservations as $reservation) {
+            $reservation->update([
+                'status' => 'cancelled',
+                'is_active' => false,
+            ]);
+
+            if ($system) {
+                $inventory->restoreReservedFor($reservation, $system, 'Auto-released after hold expired.');
+                $audit->log('reservation.expired', 'reservations', $reservation->id, $system, [
+                    'reservation_code' => $reservation->reservation_code,
+                    'expires_at' => $reservation->expires_at,
+                ]);
+            } else {
+                $fallback = User::query()->role(User::ROLE_ADMIN)->first();
+                if ($fallback) {
+                    $inventory->restoreReservedFor($reservation, $fallback, 'Auto-released after hold expired.');
+                }
+            }
+
+            $notifications->notify(
+                $reservation->user_id,
+                'reservation',
+                'Reservation '.$reservation->reservation_code.' expired',
+                'Your unpaid booking was released. Book again any time.',
+                $reservation,
+            );
+        }
+    }
+
+    private function getSlotPrice(int $courtId, string $date, string $slotStart): float
+    {
+        $day = (int) date('w', strtotime($date));
+        
+        $rules = DB::table('court_pricing_rules')
+            ->where('court_id', $courtId)
+            ->where('is_active', true)
+            ->where('effective_from', '<=', $date)
+            ->where(function ($query) use ($date) {
+                $query->whereNull('effective_to')->orWhere('effective_to', '>=', $date);
+            })
+            ->where(function ($query) use ($day) {
+                $query->whereNull('day_of_week')->orWhere('day_of_week', $day);
+            })
+            ->get();
+
+        $slotStartMins = $this->timeToMinutes($slotStart);
+
+        $matchedRule = null;
+        foreach ($rules as $rule) {
+            if (!$rule->start_time || !$rule->end_time) {
+                continue;
+            }
+
+            $ruleStartMins = $this->timeToMinutes($rule->start_time);
+            $ruleEndMins = $this->timeToMinutes($rule->end_time);
+
+            if ($ruleEndMins <= $ruleStartMins) {
+                $ruleEndMins += 1440;
+            }
+
+            $currentSlotMins = $slotStartMins;
+            if ($currentSlotMins < $ruleStartMins && $currentSlotMins + 1440 <= $ruleEndMins) {
+                $currentSlotMins += 1440;
+            }
+
+            if ($currentSlotMins >= $ruleStartMins && $currentSlotMins <= $ruleEndMins) {
+                if ($currentSlotMins == $ruleEndMins) {
+                    $matchedRule = $rule;
+                    break;
+                }
+                
+                if ($currentSlotMins >= $ruleStartMins && $currentSlotMins < $ruleEndMins) {
+                    $matchedRule = $rule;
+                }
+            }
+        }
+
+        if (!$matchedRule) {
+            $matchedRule = $rules->whereNull('start_time')->first() 
+                ?? $rules->sortBy('priority')->first();
+        }
+
+        if (!$matchedRule) {
+            return 600.0;
+        }
+
+        return round((float) $matchedRule->base_price * (1 + ((float) ($matchedRule->peak_surcharge_percentage ?? 0) / 100)), 2);
+    }
+
+    private function getPriceBreakdown(int $courtId, string $date, string $startTime, string $endTime): array
+    {
+        $hours = $this->hoursBetween($date, $startTime, $endTime);
+        $startSecs = strtotime($date.' '.$startTime);
+        
+        $breakdown = [];
+        $total = 0.0;
+        for ($i = 0; $i < $hours; $i++) {
+            $slotStart = date('H:i:00', $startSecs + ($i * 3600));
+            $slotRate = $this->getSlotPrice($courtId, $date, $slotStart);
+            $label = date('g A', $startSecs + ($i * 3600));
+            $breakdown[] = [
+                'label' => $label,
+                'rate' => $slotRate,
+            ];
+            $total += $slotRate;
+        }
+        return [
+            'items' => $breakdown,
+            'total' => $total,
+        ];
+    }
+
     private function courtIsBooked(int $courtId, string $date, string $startTime, string $endTime): bool
     {
+        $end = $endTime === '00:00:00' ? '24:00:00' : $endTime;
+
         return DB::table('reservations')
             ->where('court_id', $courtId)
             ->where('reservation_date', $date)
             ->whereNull('deleted_at')
             ->whereNotIn('status', ['cancelled', 'no_show', 'refunded'])
-            ->where('start_time', '<', $endTime)
-            ->where('end_time', '>', $startTime)
+            ->where('start_time', '<', $end)
+            ->whereRaw("(CASE WHEN end_time = '00:00:00' THEN '24:00:00' ELSE end_time END) > ?", [$startTime])
             ->exists();
     }
 
     private function courtIsUnderMaintenance(int $courtId, string $date, string $startTime, string $endTime): bool
     {
+        $endDateTime = $endTime === '00:00:00'
+            ? date('Y-m-d 00:00:00', strtotime($date.' +1 day'))
+            : $date.' '.$endTime;
+
         return DB::table('court_maintenance')
             ->where('court_id', $courtId)
-            ->where('start_datetime', '<', $date.' '.$endTime)
+            ->where('start_datetime', '<', $endDateTime)
             ->where('end_datetime', '>', $date.' '.$startTime)
             ->exists();
     }
@@ -2494,6 +3140,17 @@ class ModulePageController extends Controller
     private function ownerGcashNumber(): string
     {
         return DB::table('system_settings')->where('setting_key', 'owner_gcash_number')->value('setting_value') ?: '09123456789';
+    }
+
+    private function settingHour(string $key, int $default): int
+    {
+        $value = (string) SystemSetting::value($key, sprintf('%02d:00', $default));
+
+        if (! preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $value)) {
+            return $default;
+        }
+
+        return (int) substr($value, 0, 2);
     }
 
     /**
@@ -2594,5 +3251,23 @@ class ModulePageController extends Controller
             ->sum('re.quantity');
 
         return max(0, $physicalStock - (int) $alreadyRented);
+    }
+
+    private function courtHasOpenPlay(int $locationId, string $date, string $startTime, string $endTime): bool
+    {
+        $openPlay = DB::table('open_play_events')
+            ->where('location_id', $locationId)
+            ->whereDate('event_date', $date)
+            ->where('status', '!=', 'cancelled')
+            ->first();
+
+        if (! $openPlay) {
+            return false;
+        }
+
+        $opStart = $openPlay->start_time;
+        $opEnd = $openPlay->end_time;
+
+        return $startTime < $opEnd && $endTime > $opStart;
     }
 }

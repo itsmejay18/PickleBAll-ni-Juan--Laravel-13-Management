@@ -1,7 +1,7 @@
 <?php
 
-use App\Models\User;
 use App\Models\Reservation;
+use App\Models\User;
 use App\Services\NotificationService;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Role;

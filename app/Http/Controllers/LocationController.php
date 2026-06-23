@@ -22,9 +22,11 @@ class LocationController extends Controller
         $operatingHoursJson = $validated['operating_hours_json'] ?? null;
         unset($validated['operating_hours_json']);
 
+        $slug = ! empty($validated['slug']) ? Str::slug($validated['slug']) : $this->uniqueSlug($validated['name']);
+
         $location = Location::query()->create([
             ...$validated,
-            'slug' => $this->uniqueSlug($validated['name']),
+            'slug' => $slug,
             'country' => $validated['country'] ?? 'Philippines',
             'operating_hours' => $operatingHoursJson
                 ? json_decode($operatingHoursJson, true)
@@ -46,6 +48,10 @@ class LocationController extends Controller
         $validated = $request->validate($this->rules($location->id));
         $operatingHoursJson = $validated['operating_hours_json'] ?? null;
         unset($validated['operating_hours_json']);
+
+        if (! empty($validated['slug'])) {
+            $validated['slug'] = Str::slug($validated['slug']);
+        }
 
         $location->update([
             ...$validated,
@@ -96,6 +102,7 @@ class LocationController extends Controller
     {
         return [
             'name' => ['required', 'string', 'max:200'],
+            'slug' => ['nullable', 'string', 'max:200', 'unique:locations,slug'.($locationId ? ','.$locationId : '')],
             'branch_code' => ['required', 'string', 'max:20', 'unique:locations,branch_code'.($locationId ? ','.$locationId : '')],
             'address_line1' => ['required', 'string', 'max:500'],
             'address_line2' => ['nullable', 'string', 'max:500'],

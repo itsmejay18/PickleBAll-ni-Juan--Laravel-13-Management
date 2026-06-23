@@ -6,10 +6,11 @@ use App\Http\Controllers\CheckOutController;
 use App\Http\Controllers\CourtController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EquipmentController;
+use App\Http\Controllers\GcashQrController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MaintenanceController;
 use App\Http\Controllers\ModulePageController;
-use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\OpenPlayController;use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentProofController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\RatingController;
@@ -19,19 +20,67 @@ use App\Http\Controllers\ReportExportController;
 use App\Http\Controllers\RescheduleController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WalkInController;
+use App\Http\Controllers\XPayLinkController;
+use App\Models\SystemSetting;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    $locations = \Illuminate\Support\Facades\DB::table('locations')
+    $locations = DB::table('locations')
         ->where('is_active', true)
         ->whereNull('deleted_at')
         ->orderBy('name')
         ->get();
-    return view('welcome', compact('locations'));
+
+    // Live court rates (per hour) — reflects super-admin pricing changes instantly.
+    $courtRates = DB::table('courts as c')
+        ->join('locations as l', 'l.id', '=', 'c.location_id')
+        ->leftJoin('court_pricing_rules as pr', function ($j) {
+            $j->on('pr.court_id', '=', 'c.id')->where('pr.is_active', '=', true);
+        })
+        ->where('c.is_active', true)->whereNull('c.deleted_at')
+        ->where('l.is_active', true)->whereNull('l.deleted_at')
+        ->groupBy('c.id', 'c.court_name', 'c.court_number', 'l.name')
+        ->orderBy('l.name')->orderBy('c.court_number')
+        ->get([
+            'c.court_name', 'c.court_number', 'l.name as location_name',
+            DB::raw('MIN(pr.base_price) as base_price'),
+        ]);
+
+    // Live equipment rates (paddle/ball/etc, incl. old/new variants set in admin).
+    $equipmentRates = DB::table('equipment_types')
+        ->where('is_available_for_rent', true)
+        ->whereNull('deleted_at')
+        ->orderBy('display_order')->orderBy('name')
+        ->get(['name', 'description', 'rental_price_per_unit', 'deposit_amount']);
+
+    $publicSettings = [
+        'playing_open_time' => SystemSetting::value('public_playing_open_time', '07:00'),
+        'playing_close_time' => SystemSetting::value('public_playing_close_time', '00:00'),
+        'facebook_url' => SystemSetting::value('public_facebook_url', 'https://www.facebook.com/profile.php?id=61584658084190'),
+        'email' => SystemSetting::value('public_contact_email', 'cajpulido@yahoo.com'),
+        'phone' => SystemSetting::value('public_contact_phone', '09383427139'),
+        'developer_name' => SystemSetting::value('public_developer_name', 'RestBack'),
+        'developer_url' => SystemSetting::value('public_developer_url', 'https://www.facebook.com/restback200/'),
+    ];
+
+    $totalReservationsCount = DB::table('reservations')->whereNull('deleted_at')->count();
+
+    // Open Play card for the public dashboard (only when enabled).
+    $openPlay = \App\Models\OpenPlayEvent::upcoming();
+
+    return view('welcome', compact('locations', 'courtRates', 'equipmentRates', 'publicSettings', 'totalReservationsCount', 'openPlay'));
 });
 
-Route::get('/public/availability', [ModulePageController::class, 'getPublicAvailability'])
+// NOTE: path must NOT start with /public — on shared hosting the physical
+// `public/` directory intercepts /public/* before Laravel routing (404).
+Route::get('/court-availability', [ModulePageController::class, 'getPublicAvailability'])
     ->name('public.availability');
+
+// Serve the owner GCash QR through PHP so it renders without a storage symlink.
+Route::get('/gcash-qr', [GcashQrController::class, 'show'])->name('public.gcash-qr');
+
+Route::post('/payments/xpaylink/webhook', [XPayLinkController::class, 'webhook'])->name('payments.xpaylink.webhook');
 
 Route::get('/dashboard', DashboardController::class)
     ->middleware(['auth', 'verified'])
@@ -41,13 +90,36 @@ Route::middleware('auth')->group(function () {
     // Module pages (read views)
     Route::get('/modules/{module}', ModulePageController::class)->name('modules.show');
 
+    // Open Play
+    Route::get('/open-play', [OpenPlayController::class, 'index'])->name('open-play.index');
+    Route::get('/open-play/manage', [OpenPlayController::class, 'manage'])->name('open-play.manage');
+    Route::post('/open-play/settings', [OpenPlayController::class, 'updateSettings'])->name('open-play.settings.update');
+    Route::post('/open-play/{event}/join', [OpenPlayController::class, 'join'])->middleware('throttle:30,1')->name('open-play.join');
+    Route::get('/open-play/{event}/slots', [OpenPlayController::class, 'slots'])->name('open-play.slots');
+    Route::get('/open-play/{event}/export', [OpenPlayController::class, 'export'])->name('open-play.export');
+    Route::post('/open-play/{event}/generate', [OpenPlayController::class, 'generate'])->name('open-play.matches.generate');
+    Route::post('/open-play/{event}/regenerate', [OpenPlayController::class, 'regenerate'])->name('open-play.matches.regenerate');
+    Route::get('/open-play/ticket/{registration}', [OpenPlayController::class, 'ticket'])->name('open-play.ticket');
+    Route::post('/open-play/registrations/{registration}/check-in', [OpenPlayController::class, 'checkIn'])->name('open-play.checkin');
+    Route::delete('/open-play/registrations/{registration}', [OpenPlayController::class, 'removeParticipant'])->name('open-play.participant.remove');
+    Route::post('/open-play/{event}/self-checkin', [OpenPlayController::class, 'selfCheckIn'])->name('open-play.self-checkin');
+    Route::post('/open-play/matches/{match}/result', [OpenPlayController::class, 'submitMatchResult'])->name('open-play.submit-result');
+    Route::get('/open-play/tv', [OpenPlayController::class, 'tv'])->name('open-play.tv');
+    Route::get('/open-play/leaderboard', [OpenPlayController::class, 'leaderboard'])->name('open-play.leaderboard');
+    Route::get('/open-play/registrations/{registration}/pay', [OpenPlayController::class, 'payRegistration'])->name('open-play.pay');
+    Route::get('/open-play/registrations/{registration}/status', [OpenPlayController::class, 'registrationStatus'])->name('open-play.registration-status');
+    Route::post('/open-play/{event}/register-cash', [OpenPlayController::class, 'registerCash'])->name('open-play.register-cash');
+    Route::post('/open-play/registrations/{registration}/mark-cash-paid', [OpenPlayController::class, 'markCashPaid'])->name('open-play.mark-cash-paid');
+
     // Bookings & payments (existing)
     Route::post('/bookings', [ModulePageController::class, 'storeBooking'])
         ->middleware('throttle:30,1')
         ->name('bookings.store');
-
+    Route::post('/bookings/calculate-price', [ModulePageController::class, 'calculatePrice'])->name('bookings.calculate-price');
     Route::get('/bookings/{reservationCode}/pay', [ModulePageController::class, 'showPaymentPage'])
         ->name('bookings.pay');
+
+    Route::post('/payments/{reservation}/xpaylink/redirect', [XPayLinkController::class, 'redirect'])->name('payments.xpaylink.redirect');
 
     Route::post('/payments/proof', [ModulePageController::class, 'uploadPaymentProof'])
         ->middleware('throttle:20,1')
@@ -61,6 +133,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/admin/settings/gcash', [ModulePageController::class, 'updateGcashSettings'])
         ->name('admin.settings.gcash.update');
 
+    Route::post('/admin/settings/public-site', [ModulePageController::class, 'updatePublicSiteSettings'])
+        ->name('admin.settings.public-site.update');
+
     // Locations CRUD
     Route::post('/locations', [LocationController::class, 'store'])->name('locations.store');
     Route::put('/locations/{location}', [LocationController::class, 'update'])->name('locations.update');
@@ -71,6 +146,10 @@ Route::middleware('auth')->group(function () {
     Route::put('/courts/{court}', [CourtController::class, 'update'])->name('courts.update');
     Route::delete('/courts/{court}', [CourtController::class, 'destroy'])->name('courts.destroy');
     Route::post('/courts/{court}/toggle', [CourtController::class, 'toggle'])->name('courts.toggle');
+    Route::get('/courts/{court}/rates', [CourtController::class, 'getRates'])->name('courts.rates.index');
+    Route::post('/courts/{court}/rates', [CourtController::class, 'addRate'])->name('courts.rates.store');
+    Route::put('/courts/rates/{rate}', [CourtController::class, 'updateRate'])->name('courts.rates.update');
+    Route::delete('/courts/rates/{rate}', [CourtController::class, 'deleteRate'])->name('courts.rates.destroy');
 
     // Equipment CRUD
     Route::post('/equipment', [ModulePageController::class, 'storeEquipment'])->name('equipment.store');
@@ -89,8 +168,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/ratings/{rating}/adjust', [RatingModerationController::class, 'adjust'])->name('ratings.adjust');
 
     // Report exports (O10)
+    Route::get('/reports/sales/pdf', [ReportExportController::class, 'salesPdf'])->name('reports.sales.pdf');
     Route::get('/reports/export/{type}', [ReportExportController::class, 'csv'])
-        ->whereIn('type', ['revenue', 'bookings', 'cancellations', 'no-shows', 'equipment'])
+        ->whereIn('type', ['revenue', 'bookings', 'sales', 'cancellations', 'no-shows', 'equipment'])
         ->name('reports.export');
 
     // User management (L5, A3)
@@ -104,6 +184,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/walk-ins', [WalkInController::class, 'store'])
         ->middleware('throttle:30,1')
         ->name('walk-ins.store');
+    Route::post('/walk-ins/{reservation}/mark-paid', [WalkInController::class, 'markPaid'])
+        ->name('walk-ins.mark-paid');
 
     // Cancellation, check-in, check-out, rating
     Route::post('/reservations/{reservation}/cancel', [CancellationController::class, 'store'])
@@ -113,6 +195,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/reservations/{reservation}/check-out', [CheckOutController::class, 'store'])->name('reservations.check-out');
     Route::post('/reservations/{reservation}/rate', [RatingController::class, 'store'])->name('reservations.rate');
     Route::get('/receipts/{reservation}', [ReceiptController::class, 'show'])->name('receipts.show');
+    Route::post('/receipts/{reservation}/confirm', [ReceiptController::class, 'confirm'])->name('receipts.confirm');
+    Route::delete('/receipts/{reservation}', [ReceiptController::class, 'destroy'])->name('receipts.destroy');
+    Route::post('/receipts/bulk-delete', [ReceiptController::class, 'bulkDelete'])->name('receipts.bulk-delete');
 
     // Reschedule management
     Route::post('/reservations/{reservation}/reschedule/lock', [RescheduleController::class, 'lock'])

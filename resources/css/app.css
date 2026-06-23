@@ -54,7 +54,14 @@
 }
 
 .navbar-vertical.navbar-expand-xs {
-    overflow-y: hidden !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.navbar-vertical.navbar-expand-xs::-webkit-scrollbar {
+    display: none !important;
 }
 
 #iconNavbarSidenav,
@@ -63,6 +70,10 @@
     pointer-events: auto;
     position: relative;
     z-index: 1100;
+}
+
+body.g-sidenav-pinned #iconNavbarSidenav {
+    z-index: 999 !important;
 }
 
 .pbj-sidebar-link {

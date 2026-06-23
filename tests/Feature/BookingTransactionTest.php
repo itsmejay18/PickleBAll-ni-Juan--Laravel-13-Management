@@ -1,7 +1,10 @@
 <?php
 
+use App\Models\Reservation;
 use App\Models\User;
+use App\Services\InventoryService;
 use Illuminate\Support\Facades\DB;
+use Spatie\Permission\Models\Role;
 
 test('customer can create a court booking with equipment rental', function () {
     $user = User::factory()->create();
@@ -126,6 +129,7 @@ test('customer can create a court booking with equipment rental', function () {
 });
 
 test('equipment is available for booking at different times or other days, but blocked for overlapping times', function () {
+    \App\Models\SystemSetting::set('max_pending_bookings_limit', 5);
     $user1 = User::factory()->create();
     $user2 = User::factory()->create();
 
@@ -188,7 +192,7 @@ test('equipment is available for booking at different times or other days, but b
             'effective_from' => now()->toDateString(),
             'created_at' => now(),
             'updated_at' => now(),
-        ]
+        ],
     ]);
 
     DB::table('court_pricing_rules')->insert([
@@ -215,7 +219,7 @@ test('equipment is available for booking at different times or other days, but b
             'effective_from' => now()->toDateString(),
             'created_at' => now(),
             'updated_at' => now(),
-        ]
+        ],
     ]);
 
     $equipmentTypeId = DB::table('equipment_types')->insertGetId([
@@ -294,7 +298,7 @@ test('equipment is available for booking at different times or other days, but b
 test('inventory service clamps available and reserved quantity to prevent unsigned database errors', function () {
     $user = User::factory()->create();
     $performer = User::factory()->create();
-    \Spatie\Permission\Models\Role::findOrCreate(User::ROLE_SUPER_ADMIN, 'web');
+    Role::findOrCreate(User::ROLE_SUPER_ADMIN, 'web');
     $performer->assignRole(User::ROLE_SUPER_ADMIN);
 
     $locationId = DB::table('locations')->insertGetId([
@@ -379,10 +383,10 @@ test('inventory service clamps available and reserved quantity to prevent unsign
         'updated_at' => now(),
     ]);
 
-    $reservation = \App\Models\Reservation::find($reservationId);
+    $reservation = Reservation::find($reservationId);
 
     // Call restoreReservedFor when reserved_quantity is 0 (should be clamped to 0 rather than underflowing unsigned)
-    $service = new \App\Services\InventoryService();
+    $service = new InventoryService;
     $service->restoreReservedFor($reservation, $performer, 'Test restore clamping');
 
     $inventory = DB::table('equipment_inventory')->where('id', $inventoryId)->first();

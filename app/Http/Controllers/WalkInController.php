@@ -40,10 +40,12 @@ class WalkInController extends Controller
             'customer_last_name' => ['required', 'string', 'max:100'],
             'customer_mobile' => ['required', 'string', 'max:20'],
             'create_account' => ['nullable', 'boolean'],
-            'payment_method' => ['required', 'in:cash,gcash'],
+            'payment_method' => ['nullable', 'in:cash,gcash'],
             'cash_received' => ['nullable', 'numeric', 'min:0'],
             'gcash_reference_number' => ['nullable', 'string', 'max:100'],
             'special_requests' => ['nullable', 'string', 'max:1000'],
+            'equipment' => ['nullable', 'array'],
+            'equipment.*' => ['nullable', 'integer', 'min:0', 'max:20'],
         ]);
 
         $court = DB::table('courts as c')
@@ -71,15 +73,92 @@ class WalkInController extends Controller
             return back()->withInput()->with('error', 'Walk-in bookings must be between 1 and 4 hours.');
         }
 
-        $rate = (float) (DB::table('court_pricing_rules')
-            ->where('court_id', $court->id)
-            ->where('is_active', true)
-            ->orderBy('priority')
-            ->value('base_price') ?? 600);
-        $courtSubtotal = round($rate * $hours, 2);
-        $grandTotal = $courtSubtotal;
+        if (!$this->isWithinOperatingHours($startTime, $endTime)) {
+            return back()->withInput()->with('error', 'That court is closed for the selected time.');
+        }
 
-        if ($validated['payment_method'] === 'cash' && (float) ($validated['cash_received'] ?? 0) < $grandTotal) {
+        $courtSubtotal = 0.0;
+        $startSecs = strtotime($validated['reservation_date'].' '.$startTime);
+        for ($i = 0; $i < $hours; $i++) {
+            $slotStart = date('H:i:00', $startSecs + ($i * 3600));
+            $slotRate = $this->getSlotPrice($court->id, $validated['reservation_date'], $slotStart);
+            $courtSubtotal += $slotRate;
+        }
+
+        $requestedEquipment = collect($request->input('equipment', []))
+            ->map(fn ($qty) => (int) $qty)
+            ->filter(fn ($qty) => $qty > 0);
+
+        $equipmentRows = [];
+        $equipmentTotal = 0.0;
+
+        foreach ($requestedEquipment as $equipmentTypeId => $quantity) {
+            $equipment = DB::table('equipment_inventory as ei')
+                ->join('equipment_types as et', 'et.id', '=', 'ei.equipment_type_id')
+                ->where('ei.location_id', $court->location_id)
+                ->where('ei.equipment_type_id', (int) $equipmentTypeId)
+                ->where('et.is_available_for_rent', true)
+                ->whereNull('et.deleted_at')
+                ->first([
+                    'ei.id as inventory_id',
+                    'ei.available_quantity',
+                    'ei.reserved_quantity',
+                    'ei.total_quantity',
+                    'ei.damaged_quantity',
+                    'ei.lost_quantity',
+                    'ei.under_maintenance_quantity',
+                    'ei.equipment_type_id',
+                    'et.name',
+                    'et.rental_price_per_unit',
+                    'et.deposit_amount',
+                    'et.requires_deposit',
+                    'et.max_rental_quantity_per_booking',
+                ]);
+
+            if (! $equipment) {
+                return back()->withInput()->with('error', 'One of the selected rental items is not available at this location.');
+            }
+
+            if ($quantity > $equipment->max_rental_quantity_per_booking) {
+                return back()->withInput()->with('error', $equipment->name.' allows up to '.$equipment->max_rental_quantity_per_booking.' per booking.');
+            }
+
+            $slotAvailable = $this->availableEquipmentQuantityForSlot(
+                (int) $court->location_id,
+                (int) $equipmentTypeId,
+                $validated['reservation_date'],
+                $startTime,
+                $endTime
+            );
+
+            if ($quantity > $slotAvailable) {
+                return back()->withInput()->with('error', $equipment->name.' only has '.$slotAvailable.' available for the selected slot.');
+            }
+
+            $subtotal = round($quantity * (float) $equipment->rental_price_per_unit, 2);
+            $equipmentTotal += $subtotal;
+            $equipmentRows[] = [
+                'inventory_id' => $equipment->inventory_id,
+                'equipment_type_id' => $equipment->equipment_type_id,
+                'name' => $equipment->name,
+                'quantity' => $quantity,
+                'price_per_unit' => (float) $equipment->rental_price_per_unit,
+                'subtotal' => $subtotal,
+                'deposit_charged' => $equipment->requires_deposit ? round($quantity * (float) $equipment->deposit_amount, 2) : 0,
+                'previous_available' => (int) $equipment->available_quantity,
+                'previous_reserved' => (int) $equipment->reserved_quantity,
+                'total_quantity' => (int) $equipment->total_quantity,
+                'damaged_quantity' => (int) ($equipment->damaged_quantity ?? 0),
+                'lost_quantity' => (int) ($equipment->lost_quantity ?? 0),
+                'under_maintenance_quantity' => (int) ($equipment->under_maintenance_quantity ?? 0),
+            ];
+        }
+
+        $grandTotal = round($courtSubtotal + $equipmentTotal, 2);
+        $rate = $courtSubtotal / $hours;
+
+        $paymentMethod = $validated['payment_method'] ?? null;
+        if ($paymentMethod === 'cash' && (float) ($validated['cash_received'] ?? 0) < $grandTotal) {
             return back()->withInput()->with('error', 'Cash received must cover the total of PHP '.number_format($grandTotal, 2).'.');
         }
 
@@ -88,8 +167,8 @@ class WalkInController extends Controller
 
         try {
             DB::transaction(function () use (
-                $validated, $court, $customer, $code, $rate, $courtSubtotal, $grandTotal,
-                $startTime, $endTime, $hours, $user
+                $validated, $court, $customer, $code, $rate, $courtSubtotal, $equipmentTotal, $grandTotal,
+                $startTime, $endTime, $hours, $user, $paymentMethod, $equipmentRows
             ) {
                 // Concurrency guard
                 DB::table('reservations')
@@ -111,6 +190,10 @@ class WalkInController extends Controller
                     throw new \RuntimeException('That court is already booked for the selected window.');
                 }
 
+                $isPaid = !empty($paymentMethod);
+                $status = $isPaid ? 'confirmed' : 'pending_payment';
+                $paymentStatus = $isPaid ? 'paid' : 'unpaid';
+
                 $payload = [
                     'reservation_code' => $code,
                     'user_id' => $customer->id,
@@ -121,53 +204,109 @@ class WalkInController extends Controller
                     'end_time' => $endTime,
                     'court_price_per_hour' => $rate,
                     'court_subtotal' => $courtSubtotal,
-                    'equipment_total' => 0,
+                    'equipment_total' => $equipmentTotal,
                     'discount_amount' => 0,
                     'tax_amount' => 0,
                     'tax_rate' => 0,
                     'grand_total' => $grandTotal,
                     'reservation_type' => 'walk_in',
-                    'status' => 'confirmed',
-                    'payment_status' => 'paid',
+                    'status' => $status,
+                    'payment_status' => $paymentStatus,
                     'special_requests' => $validated['special_requests'] ?? null,
                     'is_active' => true,
-                    'confirmed_at' => now(),
-                    'confirmed_by' => $user->id,
+                    'confirmed_at' => $isPaid ? now() : null,
+                    'confirmed_by' => $isPaid ? $user->id : null,
                     'created_ip' => request()->ip(),
                     'user_agent' => request()->userAgent(),
                     'created_at' => now(),
                     'updated_at' => now(),
+                    'expires_at' => null, // Walk-ins don't auto-expire
                 ];
 
                 if (DB::getDriverName() === 'sqlite') {
                     $payload['total_hours'] = $hours;
-                    $payload['expires_at'] = null;
                 }
 
                 $reservationId = DB::table('reservations')->insertGetId($payload);
 
-                $payment = Payment::query()->create([
-                    'reservation_id' => $reservationId,
-                    'payment_reference' => 'WALK-'.$code,
-                    'amount' => $grandTotal,
-                    'payment_method' => $validated['payment_method'],
-                    'payment_type' => 'full',
-                    'gcash_number_sent_to' => $validated['payment_method'] === 'gcash' ? $this->ownerGcashNumber() : null,
-                    'gcash_reference_number' => $validated['gcash_reference_number'] ?? null,
-                    'cash_received_amount' => $validated['payment_method'] === 'cash' ? (float) $validated['cash_received'] : null,
-                    'cash_change_amount' => $validated['payment_method'] === 'cash' ? round((float) $validated['cash_received'] - $grandTotal, 2) : null,
-                    'status' => 'verified',
-                    'verified_by' => $user->id,
-                    'verified_at' => now(),
-                    'notes' => 'Walk-in counter payment.',
-                    'created_by' => $user->id,
-                ]);
+                foreach ($equipmentRows as $eq) {
+                    $reservationEquipment = [
+                        'reservation_id' => $reservationId,
+                        'equipment_type_id' => $eq['equipment_type_id'],
+                        'quantity' => $eq['quantity'],
+                        'price_per_unit' => $eq['price_per_unit'],
+                        'deposit_charged' => $eq['deposit_charged'],
+                        'deposit_returned' => false,
+                        'deposit_returned_at' => null,
+                        'is_returned' => false,
+                        'returned_at' => null,
+                        'returned_to_staff_id' => null,
+                        'damage_notes' => null,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+
+                    if (DB::getDriverName() === 'sqlite') {
+                        $reservationEquipment['subtotal'] = $eq['subtotal'];
+                    }
+
+                    DB::table('reservation_equipment')->insert($reservationEquipment);
+
+                    $damaged = (int) $eq['damaged_quantity'];
+                    $lost = (int) $eq['lost_quantity'];
+                    $maintenance = (int) $eq['under_maintenance_quantity'];
+                    $physicalStock = max(0, (int) $eq['total_quantity'] - $damaged - $lost - $maintenance);
+
+                    $newAvailable = max(0, min($physicalStock, $eq['previous_available'] - $eq['quantity']));
+                    $newReserved = max(0, min($physicalStock, $eq['previous_reserved'] + $eq['quantity']));
+
+                    DB::table('equipment_inventory')
+                        ->where('location_id', $court->location_id)
+                        ->where('equipment_type_id', $eq['equipment_type_id'])
+                        ->update([
+                            'available_quantity' => $newAvailable,
+                            'reserved_quantity' => $newReserved,
+                            'updated_at' => now(),
+                        ]);
+
+                    DB::table('inventory_transactions')->insert([
+                        'location_id' => $court->location_id,
+                        'equipment_type_id' => $eq['equipment_type_id'],
+                        'reservation_id' => $reservationId,
+                        'transaction_type' => 'check_out',
+                        'quantity' => -$eq['quantity'],
+                        'previous_available' => $eq['previous_available'],
+                        'new_available' => $newAvailable,
+                        'notes' => 'Reserved during walk-in booking ' . $code . '.',
+                        'performed_by' => $user->id,
+                        'created_at' => now(),
+                    ]);
+                }
+
+                if ($isPaid) {
+                    $payment = Payment::query()->create([
+                        'reservation_id' => $reservationId,
+                        'payment_reference' => 'WALK-'.$code,
+                        'amount' => $grandTotal,
+                        'payment_method' => $paymentMethod,
+                        'payment_type' => 'full',
+                        'gcash_number_sent_to' => $paymentMethod === 'gcash' ? $this->ownerGcashNumber() : null,
+                        'gcash_reference_number' => $validated['gcash_reference_number'] ?? null,
+                        'cash_received_amount' => $paymentMethod === 'cash' ? (float) $validated['cash_received'] : null,
+                        'cash_change_amount' => $paymentMethod === 'cash' ? round((float) $validated['cash_received'] - $grandTotal, 2) : null,
+                        'status' => 'verified',
+                        'verified_by' => $user->id,
+                        'verified_at' => now(),
+                        'notes' => 'Walk-in counter payment.',
+                        'created_by' => $user->id,
+                    ]);
+                }
 
                 $this->audit->log('reservation.walk_in.created', 'reservations', $reservationId, $user, [
                     'reservation_code' => $code,
                     'customer' => $customer->email,
                     'amount' => $grandTotal,
-                    'payment_method' => $validated['payment_method'],
+                    'payment_method' => $paymentMethod ?? 'unpaid',
                 ]);
 
                 $reservation = Reservation::query()->find($reservationId);
@@ -175,10 +314,95 @@ class WalkInController extends Controller
                 $this->notifications->notify(
                     $customer,
                     'reservation',
-                    'Walk-in booking confirmed',
-                    'Your walk-in booking '.$code.' is confirmed for '.$validated['reservation_date'].'.',
+                    'Walk-in booking ' . ($isPaid ? 'confirmed' : 'created'),
+                    'Your walk-in booking '.$code.' is ' . ($isPaid ? 'confirmed' : 'created (pending payment)') . ' for '.$validated['reservation_date'].'.',
                     $reservation,
-                    ['payment_method' => $validated['payment_method']],
+                    ['payment_method' => $paymentMethod],
+                );
+
+                if ($isPaid) {
+                    try {
+                        Mail::to($customer->email)->queue(
+                            new ReservationReceiptMail($reservation),
+                        );
+                    } catch (\Throwable $e) {
+                        report($e);
+                    }
+                }
+            });
+        } catch (\RuntimeException $e) {
+            return back()->withInput()->with('error', $e->getMessage());
+        }
+
+        return redirect()
+            ->route('modules.show', 'walk-ins')
+            ->with('status', 'Walk-in '.$code.' recorded.');
+    }
+
+    public function markPaid(Request $request, Reservation $reservation): RedirectResponse
+    {
+        $user = $request->user();
+        abort_unless($user->hasAnyRole([User::ROLE_SUPER_ADMIN, User::ROLE_ADMIN, User::ROLE_LOCATION_MANAGER, User::ROLE_STAFF]), 403);
+
+        $validated = $request->validate([
+            'payment_method' => ['required', 'in:cash,gcash'],
+            'cash_received' => ['nullable', 'numeric', 'min:0'],
+            'gcash_reference_number' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $grandTotal = (float) $reservation->grand_total;
+
+        if ($validated['payment_method'] === 'cash' && (float) ($validated['cash_received'] ?? 0) < $grandTotal) {
+            return back()->with('error', 'Cash received must cover the total of PHP '.number_format($grandTotal, 2).'.');
+        }
+
+        DB::transaction(function () use ($reservation, $validated, $grandTotal, $user) {
+            $paymentMethod = $validated['payment_method'];
+
+            DB::table('reservations')
+                ->where('id', $reservation->id)
+                ->update([
+                    'status' => 'confirmed',
+                    'payment_status' => 'paid',
+                    'confirmed_at' => now(),
+                    'confirmed_by' => $user->id,
+                    'updated_at' => now(),
+                ]);
+
+            Payment::query()->create([
+                'reservation_id' => $reservation->id,
+                'payment_reference' => 'WALK-'.$reservation->reservation_code,
+                'amount' => $grandTotal,
+                'payment_method' => $paymentMethod,
+                'payment_type' => 'full',
+                'gcash_number_sent_to' => $paymentMethod === 'gcash' ? $this->ownerGcashNumber() : null,
+                'gcash_reference_number' => $validated['gcash_reference_number'] ?? null,
+                'cash_received_amount' => $paymentMethod === 'cash' ? (float) $validated['cash_received'] : null,
+                'cash_change_amount' => $paymentMethod === 'cash' ? round((float) $validated['cash_received'] - $grandTotal, 2) : null,
+                'status' => 'verified',
+                'verified_by' => $user->id,
+                'verified_at' => now(),
+                'notes' => 'Walk-in counter payment.',
+                'created_by' => $user->id,
+            ]);
+
+            $customer = User::query()->find($reservation->user_id);
+
+            $this->audit->log('reservation.walk_in.paid', 'reservations', $reservation->id, $user, [
+                'reservation_code' => $reservation->reservation_code,
+                'customer' => $customer->email ?? '',
+                'amount' => $grandTotal,
+                'payment_method' => $paymentMethod,
+            ]);
+
+            if ($customer) {
+                $this->notifications->notify(
+                    $customer,
+                    'reservation',
+                    'Walk-in booking paid',
+                    'Your walk-in booking '.$reservation->reservation_code.' has been marked as Paid.',
+                    $reservation,
+                    ['payment_method' => $paymentMethod],
                 );
 
                 try {
@@ -188,14 +412,12 @@ class WalkInController extends Controller
                 } catch (\Throwable $e) {
                     report($e);
                 }
-            });
-        } catch (\RuntimeException $e) {
-            return back()->withInput()->with('error', $e->getMessage());
-        }
+            }
+        });
 
         return redirect()
             ->route('modules.show', 'walk-ins')
-            ->with('status', 'Walk-in '.$code.' confirmed and paid.');
+            ->with('status', 'Reservation marked as Paid.');
     }
 
     private function resolveOrCreateCustomer(array $data, bool $createAccount): User
@@ -224,17 +446,16 @@ class WalkInController extends Controller
                 $email = 'walkin+'.$digits.'.'.substr(md5($data['customer_mobile']), 0, 4).'@walkins.local';
             }
 
-            return User::query()->withTrashed()->updateOrCreate(
-                ['email' => $email],
-                [
-                    'mobile_number' => $data['customer_mobile'],
-                    'password' => Hash::make(Str::random(20)),
-                    'is_active' => true,
-                    'email_verified_at' => null,
-                    'mobile_verified_at' => null,
-                    'deleted_at' => null,
-                ],
-            )->fresh();
+            $walkInUser = User::query()->withTrashed()->firstOrNew(['email' => $email]);
+            $walkInUser->forceFill([
+                'mobile_number' => $data['customer_mobile'],
+                'password' => Hash::make(Str::random(20)),
+                'is_active' => true,
+                'email_verified_at' => null,
+                'mobile_verified_at' => null,
+                'deleted_at' => null,
+            ])->save();
+            return $walkInUser->fresh();
         }
 
         // W11 fix: same collision-safe email for account creation path
@@ -279,5 +500,133 @@ class WalkInController extends Controller
     private function ownerGcashNumber(): string
     {
         return SystemSetting::value('owner_gcash_number', '09123456789');
+    }
+
+    private function isWithinOperatingHours(string $startTime, string $endTime): bool
+    {
+        $openTime = SystemSetting::value('public_playing_open_time', '07:00');
+        $closeTime = SystemSetting::value('public_playing_close_time', '00:00');
+
+        $openMins = $this->timeToMinutes($openTime);
+        $closeMins = $this->timeToMinutes($closeTime);
+
+        if ($closeMins <= $openMins) {
+            $closeMins += 1440;
+        }
+
+        $startMins = $this->timeToMinutes($startTime);
+        $endMins = $this->timeToMinutes($endTime);
+
+        if ($startMins < $openMins) {
+            $startMins += 1440;
+        }
+        if ($endMins <= $openMins) {
+            $endMins += 1440;
+        }
+
+        return $startMins >= $openMins && $endMins <= $closeMins;
+    }
+
+    private function getSlotPrice(int $courtId, string $date, string $slotStart): float
+    {
+        $day = (int) date('w', strtotime($date));
+        
+        $rules = DB::table('court_pricing_rules')
+            ->where('court_id', $courtId)
+            ->where('is_active', true)
+            ->where('effective_from', '<=', $date)
+            ->where(function ($query) use ($date) {
+                $query->whereNull('effective_to')->orWhere('effective_to', '>=', $date);
+            })
+            ->where(function ($query) use ($day) {
+                $query->whereNull('day_of_week')->orWhere('day_of_week', $day);
+            })
+            ->get();
+
+        $slotStartMins = $this->timeToMinutes($slotStart);
+
+        $matchedRule = null;
+        foreach ($rules as $rule) {
+            if (!$rule->start_time || !$rule->end_time) {
+                continue;
+            }
+
+            $ruleStartMins = $this->timeToMinutes($rule->start_time);
+            $ruleEndMins = $this->timeToMinutes($rule->end_time);
+
+            if ($ruleEndMins <= $ruleStartMins) {
+                $ruleEndMins += 1440;
+            }
+
+            $currentSlotMins = $slotStartMins;
+            if ($currentSlotMins < $ruleStartMins && $currentSlotMins + 1440 <= $ruleEndMins) {
+                $currentSlotMins += 1440;
+            }
+
+            if ($currentSlotMins >= $ruleStartMins && $currentSlotMins <= $ruleEndMins) {
+                if ($currentSlotMins == $ruleEndMins) {
+                    $matchedRule = $rule;
+                    break;
+                }
+                
+                if ($currentSlotMins >= $ruleStartMins && $currentSlotMins < $ruleEndMins) {
+                    $matchedRule = $rule;
+                }
+            }
+        }
+
+        if (!$matchedRule) {
+            $matchedRule = $rules->whereNull('start_time')->first() 
+                ?? $rules->sortBy('priority')->first();
+        }
+
+        if (!$matchedRule) {
+            return 600.0;
+        }
+
+        return round((float) $matchedRule->base_price * (1 + ((float) ($matchedRule->peak_surcharge_percentage ?? 0) / 100)), 2);
+    }
+
+    private function timeToMinutes(string $time): int
+    {
+        $time = trim($time);
+        if (preg_match('/(AM|PM)/i', $time)) {
+            $timestamp = strtotime('2000-01-01 ' . $time);
+            if ($timestamp !== false) {
+                return (int) date('H', $timestamp) * 60 + (int) date('i', $timestamp);
+            }
+        }
+        $parts = explode(':', $time);
+        return ((int) $parts[0]) * 60 + ((int) ($parts[1] ?? 0));
+    }
+
+    private function availableEquipmentQuantityForSlot(int $locationId, int $equipmentTypeId, string $date, string $startTime, string $endTime): int
+    {
+        $inventory = DB::table('equipment_inventory')
+            ->where('location_id', $locationId)
+            ->where('equipment_type_id', $equipmentTypeId)
+            ->first();
+
+        if (! $inventory) {
+            return 0;
+        }
+
+        $damaged = (int) ($inventory->damaged_quantity ?? 0);
+        $lost = (int) ($inventory->lost_quantity ?? 0);
+        $maintenance = (int) ($inventory->under_maintenance_quantity ?? 0);
+        $physicalStock = (int) $inventory->total_quantity - $damaged - $lost - $maintenance;
+
+        $alreadyRented = DB::table('reservation_equipment as re')
+            ->join('reservations as r', 'r.id', '=', 're.reservation_id')
+            ->where('r.location_id', $locationId)
+            ->where('re.equipment_type_id', $equipmentTypeId)
+            ->where('r.reservation_date', $date)
+            ->whereNull('r.deleted_at')
+            ->whereNotIn('r.status', ['cancelled', 'no_show', 'refunded'])
+            ->where('r.start_time', '<', $endTime)
+            ->where('r.end_time', '>', $startTime)
+            ->sum('re.quantity');
+
+        return max(0, $physicalStock - (int) $alreadyRented);
     }
 }

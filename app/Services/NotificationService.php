@@ -7,6 +7,7 @@ use App\Models\Reservation;
 use App\Models\StaffProfile;
 use App\Models\User;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class NotificationService
 {
@@ -83,13 +84,13 @@ class NotificationService
     ): void {
         // Query existing roles in DB to prevent exceptions in unseeded tests
         $adminRoleNames = [User::ROLE_SUPER_ADMIN, User::ROLE_ADMIN];
-        $existingAdminRoles = \Illuminate\Support\Facades\DB::table('roles')
+        $existingAdminRoles = DB::table('roles')
             ->whereIn('name', $adminRoleNames)
             ->pluck('name')
             ->toArray();
 
         $admins = collect();
-        if (!empty($existingAdminRoles)) {
+        if (! empty($existingAdminRoles)) {
             $admins = User::query()
                 ->role($existingAdminRoles)
                 ->get();
@@ -98,12 +99,12 @@ class NotificationService
         // 2. Get location staff if location_id is available
         $staff = collect();
         $staffRoleNames = [User::ROLE_LOCATION_MANAGER, User::ROLE_STAFF];
-        $existingStaffRoles = \Illuminate\Support\Facades\DB::table('roles')
+        $existingStaffRoles = DB::table('roles')
             ->whereIn('name', $staffRoleNames)
             ->pluck('name')
             ->toArray();
 
-        if ($reservation && $reservation->location_id && !empty($existingStaffRoles)) {
+        if ($reservation && $reservation->location_id && ! empty($existingStaffRoles)) {
             $staffIds = StaffProfile::query()
                 ->where('assigned_location_id', $reservation->location_id)
                 ->pluck('user_id');
@@ -119,7 +120,7 @@ class NotificationService
 
         foreach ($recipients as $recipient) {
             $isAdmin = false;
-            if (!empty($existingAdminRoles)) {
+            if (! empty($existingAdminRoles)) {
                 $isAdmin = $recipient->hasAnyRole($existingAdminRoles);
             }
             $channel = $isAdmin ? 'admin' : 'staff';

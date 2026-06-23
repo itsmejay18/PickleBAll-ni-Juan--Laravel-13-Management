@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportExportController extends Controller
@@ -24,6 +25,7 @@ class ReportExportController extends Controller
         $rows = match ($type) {
             'revenue' => $this->revenueRows($from, $to),
             'bookings' => $this->bookingRows($from, $to),
+            'sales' => $this->salesRows($from, $to),
             'cancellations' => $this->cancellationRows($from, $to),
             'no-shows' => $this->noShowRows($from, $to),
             'equipment' => $this->equipmentRows($from, $to),
@@ -180,6 +182,78 @@ class ReportExportController extends Controller
                 DB::raw('SUM(re.quantity * re.price_per_unit) as total_rental_revenue'),
             ])
             ->map(fn ($row) => (array) $row)
+            ->all();
+    }
+
+    /**
+     * Printable sales report (browser print -> save as PDF). No PDF dependency needed.
+     */
+    public function salesPdf(Request $request): View
+    {
+        $this->authorizeAdmin($request);
+
+        $from = $request->date('from') ?? now()->startOfMonth();
+        $to = $request->date('to') ?? now()->endOfMonth();
+        $rows = $this->salesRows($from, $to);
+        $total = array_sum(array_map(static fn ($row) => (float) ($row['amount'] ?? 0), $rows));
+
+        return view('reports.sales-pdf', [
+            'rows' => $rows,
+            'from' => $from,
+            'to' => $to,
+            'total' => $total,
+            'generatedAt' => now(),
+        ]);
+    }
+
+    /**
+     * Sales history rows: every live booking with its latest payment in the range.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function salesRows(Carbon $from, Carbon $to): array
+    {
+        return DB::table('reservations as r')
+            ->join('courts as c', 'c.id', '=', 'r.court_id')
+            ->join('locations as l', 'l.id', '=', 'r.location_id')
+            ->join('users as u', 'u.id', '=', 'r.user_id')
+            ->leftJoin('end_user_profiles as eup', 'eup.user_id', '=', 'u.id')
+            ->leftJoin('payments as p', 'p.id', '=', DB::raw("(select pp.id from payments pp where pp.reservation_id = r.id order by (pp.status = 'verified') desc, pp.id desc limit 1)"))
+            ->whereBetween('r.reservation_date', [$from->toDateString(), $to->toDateString()])
+            ->whereNull('r.deleted_at')
+            ->orderBy('r.reservation_date')
+            ->orderBy('r.start_time')
+            ->get([
+                'r.reservation_code',
+                'r.reservation_date',
+                'r.start_time',
+                'r.end_time',
+                'l.name as location',
+                'c.court_number',
+                'r.status as reservation_status',
+                'r.grand_total',
+                'p.amount',
+                'p.payment_method',
+                'p.status as payment_status',
+                'p.gcash_reference_number',
+                'u.email as customer_email',
+                DB::raw("COALESCE(NULLIF(TRIM(CONCAT(COALESCE(eup.first_name,''),' ',COALESCE(eup.last_name,''))),''), u.email) as customer_name"),
+            ])
+            ->map(fn ($row) => [
+                'reservation_code' => $row->reservation_code,
+                'customer' => $row->customer_name,
+                'customer_email' => $row->customer_email,
+                'location' => $row->location,
+                'court_number' => $row->court_number,
+                'reservation_date' => $row->reservation_date,
+                'start_time' => $row->start_time,
+                'end_time' => $row->end_time,
+                'reservation_status' => $row->reservation_status,
+                'payment_status' => $row->payment_status,
+                'payment_method' => $row->payment_method,
+                'reference' => $row->gcash_reference_number ?: ($row->payment_method ? strtoupper($row->payment_method) : '—'),
+                'amount' => (float) ($row->amount ?? $row->grand_total ?? 0),
+            ])
             ->all();
     }
 

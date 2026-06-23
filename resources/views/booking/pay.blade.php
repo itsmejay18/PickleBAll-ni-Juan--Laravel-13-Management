@@ -267,8 +267,8 @@
 
         /* Glowing QR Container */
         .qr-container {
-            width: 220px;
-            height: 220px;
+            width: 300px;
+            height: 300px;
             margin: 0 auto 1rem;
             position: relative;
             background: #fff;
@@ -725,213 +725,280 @@
             <span>Book Court</span>
             <div class="dot"></div>
             <span class="active">Payment</span>
-            <div class="dot"></div>
-            <span>Confirmed</span>
         </div>
     </div>
 
     <div class="pay-wrap">
-
-        @if (session('status'))
-            <div style="background:#dcfce7; border:1px solid #86efac; border-radius:10px; padding:0.85rem 1.25rem; margin-bottom:1.25rem; font-size:0.85rem; color:#166534; display:flex; align-items:center; gap:0.5rem;">
-                <i class="fas fa-check-circle"></i> {{ session('status') }}
-            </div>
-        @endif
-
-        @if ($errors->any())
-            <div style="background:#fee2e2; border:1px solid #fca5a5; border-radius:10px; padding:0.85rem 1.25rem; margin-bottom:1.25rem; font-size:0.85rem; color:#991b1b;">
-                @foreach ($errors->all() as $error)
-                    <div><i class="fas fa-exclamation-circle me-1"></i>{{ $error }}</div>
-                @endforeach
-            </div>
-        @endif
-
-        {{-- BOOKING SUMMARY --}}
-        <div class="summary-card">
-            <div>
-                <div class="summary-code">Booking #{{ $reservation->reservation_code }}</div>
-                <div class="summary-title">
-                    {{ $reservation->location_name }} — Court {{ $reservation->court_number }}
-                    @if($reservation->court_name) ({{ $reservation->court_name }}) @endif
+        @if ($reservation->status === 'cancelled')
+            <div class="card p-5 text-center shadow-lg border-radius-xl" style="background: #fff; margin-top: 2rem; margin-bottom: 2.5rem; border: 1px solid rgba(0,0,0,0.06);">
+                <div class="icon bg-gradient-danger text-white rounded-circle d-flex align-items-center justify-content-center mx-auto mb-4" style="width: 80px; height: 80px; font-size: 2.2rem; background: linear-gradient(135deg, #f5365c, #f56036);">
+                    <i class="fas fa-history"></i>
                 </div>
-                <div class="summary-meta">
-                    <i class="fas fa-calendar-alt me-1"></i>
-                    {{ \Carbon\Carbon::parse($reservation->reservation_date)->format('F j, Y') }}
-                    &nbsp;·&nbsp;
-                    <i class="fas fa-clock me-1"></i>
-                    {{ \Carbon\Carbon::parse($reservation->start_time)->format('g:i A') }} –
-                    {{ \Carbon\Carbon::parse($reservation->end_time)->format('g:i A') }}
-                </div>
-            </div>
-            <div class="summary-amount">
-                <div class="summary-amount-label">Total to Pay</div>
-                <div class="summary-amount-value">PHP {{ number_format($reservation->grand_total, 2) }}</div>
-                <span class="summary-badge mt-1">
-                    <i class="fas fa-clock" style="font-size:0.65rem;"></i>
-                    Pending Payment
-                </span>
-            </div>
-        </div>
-
-        {{-- CHOICE --}}
-        <div class="choice-section">
-            <div class="choice-header">
-                <h6>How do you want to pay?</h6>
-                <p>Choose to pay now or come back later via the Pay GCash menu.</p>
-            </div>
-            <div class="choice-buttons">
-                <button type="button" class="choice-btn active-choice" id="btnChooseNow" onclick="showPanel('now')">
-                    <div class="choice-icon green"><i class="fas fa-mobile-alt"></i></div>
-                    <div class="choice-label">Pay Now via GCash</div>
-                    <div class="choice-sub">Scan QR &amp; upload screenshot</div>
-                </button>
-                <button type="button" class="choice-btn" id="btnChooseLater" onclick="showPanel('later')">
-                    <div class="choice-icon gray"><i class="fas fa-clock"></i></div>
-                    <div class="choice-label">Pay Later</div>
-                    <div class="choice-sub">We'll hold your booking for 2 hours</div>
-                </button>
-            </div>
-        </div>
-
-        {{-- PAY NOW PANEL --}}
-        <div id="panelNow" class="gcash-panel">
-            <div class="gcash-panel-header">
-                <div style="width:38px; height:38px; border-radius:10px; background:rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-                    <i class="fas fa-mobile-alt" style="color:#fff; font-size:1.1rem;"></i>
-                </div>
+                <h3 class="font-weight-bolder text-dark mb-2">Booking Session Expired</h3>
+                <p class="text-secondary text-sm mb-4 mx-auto" style="max-width: 480px; line-height: 1.6;">
+                    This reservation has been cancelled because payment was not completed within the 3-minute limit. The slot has been released for other customers.
+                </p>
                 <div>
-                    <h6>Pay via GCash</h6>
-                    <p>Scan the QR or send to the number, then upload your screenshot below.</p>
+                    <a href="{{ route('modules.show', 'book-court') }}" class="btn bg-gradient-primary btn-md px-5" style="background: linear-gradient(135deg, #18a37f, #0d9488); border: none;">
+                        <i class="fas fa-calendar-plus me-1"></i> Book a Court Again
+                    </a>
                 </div>
             </div>
+        @else
+            {{-- COUNTDOWN TIMER CARD --}}
+            <div id="payment-timer" class="mb-4 text-center p-3 border-radius-xl shadow-sm" style="background:#fffbeb; border:1px solid #fde68a; color:#b45309; font-weight:700; font-size:1rem; display:flex; align-items:center; justify-content:center; gap:0.6rem;">
+                <i class="fas fa-stopwatch fa-spin" style="font-size:1.2rem; color:#d97706;"></i>
+                <span>Time remaining to complete payment: <span id="timer-countdown" style="font-family: monospace; font-size:1.15rem; letter-spacing:0.05em; color: #b45309;">03:00</span></span>
+            </div>
 
-            <div class="gcash-body">
-                {{-- QR + Number --}}
-                <div class="qr-block">
-                    @if (!empty($ownerGcashQr))
-                        <div class="qr-container" onclick="openQrLightbox()" title="Click to enlarge QR Code">
-                            <div class="scan-laser"></div>
-                            <div class="qr-expand-btn">
-                                <i class="fas fa-expand-alt"></i>
+            @if (session('status'))
+                <div style="background:#dcfce7; border:1px solid #86efac; border-radius:10px; padding:0.85rem 1.25rem; margin-bottom:1.25rem; font-size:0.85rem; color:#166534; display:flex; align-items:center; gap:0.5rem;">
+                    <i class="fas fa-check-circle"></i> {{ session('status') }}
+                </div>
+            @endif
+
+            @if ($errors->any())
+                <div style="background:#fee2e2; border:1px solid #fca5a5; border-radius:10px; padding:0.85rem 1.25rem; margin-bottom:1.25rem; font-size:0.85rem; color:#991b1b;">
+                    @foreach ($errors->all() as $error)
+                        <div><i class="fas fa-exclamation-circle me-1"></i>{{ $error }}</div>
+                    @endforeach
+                </div>
+            @endif
+
+            {{-- BOOKING SUMMARY --}}
+            <div class="summary-card">
+                <div>
+                    <div class="summary-code">Booking #{{ $reservation->reservation_code }}</div>
+                    <div class="summary-title">
+                        {{ $reservation->location_name }} — Court {{ $reservation->court_number }}
+                        @if($reservation->court_name) ({{ $reservation->court_name }}) @endif
+                    </div>
+                    <div class="summary-meta">
+                        <i class="fas fa-calendar-alt me-1"></i>
+                        {{ \Carbon\Carbon::parse($reservation->reservation_date)->format('F j, Y') }}
+                        &nbsp;·&nbsp;
+                        <i class="fas fa-clock me-1"></i>
+                        {{ \Carbon\Carbon::parse($reservation->start_time)->format('g:i A') }} –
+                        {{ \Carbon\Carbon::parse($reservation->end_time)->format('g:i A') }}
+                    </div>
+                    @if (isset($priceBreakdown) && count($priceBreakdown['items']) > 0)
+                        <div style="margin-top: 0.65rem; font-size: 0.8rem; color: #67748e; border-top: 1px dashed #cbd5e1; padding-top: 0.5rem; display: flex; flex-direction: column; gap: 0.2rem;">
+                            <span class="font-weight-bold text-dark"><i class="fas fa-info-circle me-1"></i>Rate Breakdown:</span>
+                            <div style="display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem;">
+                                @foreach ($priceBreakdown['items'] as $item)
+                                    <span class="bg-light px-2 py-1 rounded border text-xs" style="color: #4a5568;">
+                                        {{ $item['label'] }}: <strong>PHP {{ number_format($item['rate'], 2) }}</strong>
+                                    </span>
+                                @endforeach
                             </div>
-                            <img src="{{ asset($ownerGcashQr) }}" alt="GCash QR Code">
-                        </div>
-                    @else
-                        <div class="qr-placeholder">
-                            <i class="fas fa-qrcode" style="font-size:2.5rem;"></i>
-                            QR code not set.<br>Use number below.
                         </div>
                     @endif
-                    
-                    <div class="qr-number-wrapper">
-                        <span id="gcashNumberText" class="qr-number">{{ $ownerGcashNumber }}</span>
-                        <button type="button" class="btn-copy" onclick="copyGcashNumber()" title="Copy GCash Number">
-                            <i class="far fa-copy"></i>
-                        </button>
-                        <span id="copyTooltip" class="copy-tooltip">Copied!</span>
-                    </div>
-                    <div class="qr-label">GCash Number</div>
-                    
-                    <div class="amount-pill">
-                        <i class="fas fa-peso-sign" style="font-size:0.75rem;"></i>
-                        Send PHP {{ number_format($reservation->grand_total, 2) }}
-                    </div>
                 </div>
+                <div class="summary-amount">
+                    <div class="summary-amount-label">Total to Pay</div>
+                    <div class="summary-amount-value">PHP {{ number_format($reservation->grand_total, 2) }}</div>
+                    <span class="summary-badge mt-1">
+                        <i class="fas fa-clock" style="font-size:0.65rem;"></i>
+                        Pending Payment
+                    </span>
+                </div>
+            </div>
 
-                {{-- Upload Form --}}
-                <div class="upload-block">
-                    <div class="upload-step">
-                        <div class="upload-step-num">1</div>
-                        <div class="upload-step-text">Open your GCash app and send exactly <strong>PHP {{ number_format($reservation->grand_total, 2) }}</strong> to <strong>{{ $ownerGcashNumber }}</strong></div>
+            {{-- PAY NOW PANEL --}}
+            <div id="panelNow" class="gcash-panel">
+                @if ($xpaylinkEnabled && !empty($xpaylinkPublicKey))
+                    <div class="gcash-panel-header" style="background: linear-gradient(135deg, #18a37f, #0d9488);">
+                        <div style="width:38px; height:38px; border-radius:10px; background:rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                            <i class="fas fa-mobile-alt" style="color:#fff; font-size:1.1rem;"></i>
+                        </div>
+                        <div>
+                            <h6>Automatic GCash Payment</h6>
+                            <p>Complete your payment securely. You will be redirected to the secure GCash page.</p>
+                        </div>
                     </div>
-                    <div class="upload-step">
-                        <div class="upload-step-num">2</div>
-                        <div class="upload-step-text">Screenshot the <strong>GCash confirmation screen</strong> showing the reference number and amount</div>
-                    </div>
-                    <div class="upload-step">
-                        <div class="upload-step-num">3</div>
-                        <div class="upload-step-text">Fill in the details below and upload your screenshot</div>
-                    </div>
 
-                    <div class="upload-divider"></div>
-
-                    <form method="POST"
-                          action="{{ route('payments.proof.store') }}"
-                          enctype="multipart/form-data"
-                          id="gcashUploadForm">
-                        @csrf
-                        <input type="hidden" name="reservation_id" value="{{ $reservation->id }}">
-
-                        <div class="row g-3">
-                            <div class="col-sm-6">
-                                <label class="form-label-xs">GCash Reference Number <span style="color:#e53e3e;">*</span></label>
-                                <input type="text"
-                                       name="gcash_reference_number"
-                                       class="pay-input"
-                                       placeholder="e.g. 1234567890"
-                                       value="{{ old('gcash_reference_number') }}"
-                                       required>
+                    <div class="gcash-body" style="display: block; text-align: center; padding: 3rem 1.5rem;">
+                        <div style="max-width: 480px; margin: 0 auto;">
+                            <div style="width:72px; height:72px; border-radius:50%; background:#ecfdf5; display:flex; align-items:center; justify-content:center; margin:0 auto 1.5rem;">
+                                <i class="fas fa-mobile-screen-button" style="font-size:2rem; color:#10b981;"></i>
                             </div>
-                            <div class="col-sm-6">
-                                <label class="form-label-xs">Your GCash Number <span style="color:#8392ab; font-weight:400; text-transform:none;">(optional)</span></label>
-                                <input type="text"
-                                       name="gcash_sender_number"
-                                       class="pay-input"
-                                       placeholder="09XXXXXXXXX"
-                                       value="{{ old('gcash_sender_number', auth()->user()->mobile_number) }}">
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label-xs">GCash Screenshot <span style="color:#e53e3e;">*</span></label>
-                                <div class="drop-zone" id="dropZone">
-                                    <input type="file"
-                                           name="gcash_screenshot"
-                                           id="screenshotInput"
-                                           accept="image/png,image/jpeg,image/webp"
-                                           required>
-                                    <div id="dropZoneContent">
-                                        <div class="drop-zone-icon"><i class="fas fa-cloud-upload-alt"></i></div>
-                                        <div class="drop-zone-text">Click or drag your screenshot here</div>
-                                        <div class="drop-zone-sub">JPG, PNG, or WEBP · Max 5MB</div>
-                                    </div>
-                                    <img id="previewImg" src="" alt="Preview">
+                            <h5 class="text-dark font-weight-bold mb-2">Automated GCash Checkout</h5>
+                            <p class="text-secondary text-sm mb-4">
+                                You are paying exactly <strong>PHP {{ number_format($reservation->grand_total, 2) }}</strong>.<br>
+                                Click the button below to initiate the checkout. Your booking will be instantly confirmed once payment is completed.
+                            </p>
+
+                            <form method="POST" action="{{ route('payments.xpaylink.redirect', $reservation->id) }}">
+                                @csrf
+                                <div class="form-check text-start mb-4" style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 1.25rem 1.5rem 1.25rem 3.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.03);">
+                                    <input class="form-check-input" type="checkbox" id="agreeTermsXPay" required style="width: 1.5rem; height: 1.5rem; margin-top: 0.1rem; margin-left: -2.25rem; cursor: pointer;">
+                                    <label class="form-check-label text-dark font-weight-bold mb-0" for="agreeTermsXPay" style="cursor: pointer; line-height: 1.5; display: block; font-size: 0.95rem;">
+                                        I read and agree to the <span class="text-danger font-weight-bolder">Terms & Conditions</span>: Bookings are strictly non-refundable unless cancelled due to severe weather (e.g. rain). I also agree to send the EXACT payable amount of <span class="text-primary font-weight-bolder">PHP {{ number_format($reservation->grand_total, 2) }}</span>, as any discrepancies will cause payment mismatch or verification delays.
+                                    </label>
                                 </div>
+
+                                <button type="submit" class="btn-pay-submit" style="background: linear-gradient(135deg, #18a37f, #0d9488); padding: 1rem;">
+                                    <i class="fas fa-external-link-alt"></i> Pay Now via GCash (Automatic Redirect)
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                @else
+                    <div class="gcash-panel-header">
+                        <div style="width:38px; height:38px; border-radius:10px; background:rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                            <i class="fas fa-mobile-alt" style="color:#fff; font-size:1.1rem;"></i>
+                        </div>
+                        <div>
+                            <h6>Pay via GCash</h6>
+                            <p>Scan the QR or send to the number, then upload your screenshot below.</p>
+                        </div>
+                    </div>
+
+                    <div class="gcash-body">
+                        {{-- QR + Number --}}
+                        <div class="qr-block">
+                            @if (!empty($ownerGcashQr))
+                                <div class="qr-container" onclick="openQrLightbox()" title="Click to enlarge QR Code">
+                                    <div class="scan-laser"></div>
+                                    <div class="qr-expand-btn">
+                                        <i class="fas fa-expand-alt"></i>
+                                    </div>
+                                    <img src="{{ route('public.gcash-qr') }}?v={{ basename($ownerGcashQr) }}" alt="GCash QR Code">
+                                </div>
+                            @else
+                                <div class="qr-placeholder">
+                                    <i class="fas fa-qrcode" style="font-size:2.5rem;"></i>
+                                    QR code not set.<br>Use number below.
+                                </div>
+                            @endif
+                            
+                            <div class="qr-number-wrapper">
+                                <span id="gcashNumberText" class="qr-number">{{ $ownerGcashNumber }}</span>
+                                <button type="button" class="btn-copy" onclick="copyGcashNumber()" title="Copy GCash Number">
+                                    <i class="far fa-copy"></i>
+                                </button>
+                                <span id="copyTooltip" class="copy-tooltip">Copied!</span>
+                            </div>
+                            <div class="qr-label">GCash Number</div>
+                            
+                            <div class="amount-pill">
+                                <i class="fas fa-peso-sign" style="font-size:0.75rem;"></i>
+                                Send PHP {{ number_format($reservation->grand_total, 2) }}
                             </div>
                         </div>
 
-                        <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:0.75rem 1rem; font-size:0.8rem; color:#92400e; margin-top:1rem; display:flex; gap:0.5rem; align-items:flex-start;">
-                            <i class="fas fa-exclamation-triangle" style="margin-top:0.1rem; flex-shrink:0;"></i>
-                            Make sure you've already <strong>sent the payment</strong> before submitting. Your booking will move to "Under Review" and admin will confirm within the day.
+                        {{-- Upload Form --}}
+                        <div class="upload-block">
+                            <div class="upload-step">
+                                <div class="upload-step-num">1</div>
+                                <div class="upload-step-text">Open your GCash app and send exactly <strong>PHP {{ number_format($reservation->grand_total, 2) }}</strong> to <strong>{{ $ownerGcashNumber }}</strong></div>
+                            </div>
+                            <div class="upload-step">
+                                <div class="upload-step-num">2</div>
+                                <div class="upload-step-text">Screenshot the <strong>GCash confirmation screen</strong> showing the reference number and amount</div>
+                            </div>
+                            <div class="upload-step">
+                                <div class="upload-step-num">3</div>
+                                <div class="upload-step-text">Fill in the details below and upload your screenshot</div>
+                            </div>
+
+                            <div class="upload-divider"></div>
+
+                            <form method="POST"
+                                  action="{{ route('payments.proof.store') }}"
+                                  enctype="multipart/form-data"
+                                  id="gcashUploadForm">
+                                @csrf
+                                <input type="hidden" name="reservation_id" value="{{ $reservation->id }}">
+
+                                <div class="row g-3">
+                                    <div class="col-sm-6">
+                                        <label class="form-label-xs">GCash Reference Number <span style="color:#e53e3e;">*</span></label>
+                                        <input type="text"
+                                               name="gcash_reference_number"
+                                               class="pay-input"
+                                               placeholder="e.g. 1234567890"
+                                               value="{{ old('gcash_reference_number') }}"
+                                               required>
+                                    </div>
+                                    <div class="col-sm-6">
+                                        <label class="form-label-xs">Your GCash Number <span style="color:#8392ab; font-weight:400; text-transform:none;">(optional)</span></label>
+                                        <input type="text"
+                                               name="gcash_sender_number"
+                                               class="pay-input"
+                                               placeholder="09XXXXXXXXX"
+                                               value="{{ old('gcash_sender_number', auth()->user()->mobile_number) }}">
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label-xs">GCash Screenshot <span style="color:#e53e3e;">*</span></label>
+                                        <div class="drop-zone" id="dropZone">
+                                            <input type="file"
+                                                   name="gcash_screenshot"
+                                                   id="screenshotInput"
+                                                   accept="image/png,image/jpeg,image/webp"
+                                                   required>
+                                            <div id="dropZoneContent">
+                                                <div class="drop-zone-icon"><i class="fas fa-cloud-upload-alt"></i></div>
+                                                <div class="drop-zone-text">Click or drag your screenshot here</div>
+                                                <div class="drop-zone-sub">JPG, PNG, or WEBP · Max 5MB</div>
+                                            </div>
+                                            <img id="previewImg" src="" alt="Preview">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-check text-start mb-3" style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 1.25rem 1.5rem 1.25rem 3.5rem; margin-top: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.03);">
+                                    <input class="form-check-input" type="checkbox" id="agreeTermsManual" required style="width: 1.5rem; height: 1.5rem; margin-top: 0.1rem; margin-left: -2.25rem; cursor: pointer;">
+                                    <label class="form-check-label text-dark font-weight-bold mb-0" for="agreeTermsManual" style="cursor: pointer; line-height: 1.5; display: block; font-size: 0.95rem;">
+                                        I read and agree to the <span class="text-danger font-weight-bolder">Terms & Conditions</span>: Bookings are strictly non-refundable unless cancelled due to severe weather (e.g. rain). I also agree to send the EXACT payable amount of <span class="text-primary font-weight-bolder">PHP {{ number_format($reservation->grand_total, 2) }}</span>, as any discrepancies will cause payment mismatch or verification delays.
+                                    </label>
+                                </div>
+
+                                <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:0.75rem 1rem; font-size:0.8rem; color:#92400e; margin-top:1rem; display:flex; gap:0.5rem; align-items:flex-start;">
+                                    <i class="fas fa-exclamation-triangle" style="margin-top:0.1rem; flex-shrink:0;"></i>
+                                    Make sure you've already <strong>sent the payment</strong> before submitting. Your booking will move to "Under Review" and admin will confirm within the day.
+                                </div>
+
+                                <button type="submit" class="btn-pay-submit">
+                                    <i class="fas fa-check-circle"></i>
+                                    Submit Payment Proof
+                                </button>
+                            </form>
                         </div>
-
-                        <button type="submit" class="btn-pay-submit">
-                            <i class="fas fa-check-circle"></i>
-                            Submit Payment Proof
-                        </button>
-                    </form>
-                </div>
+                    </div>
+                @endif
             </div>
-        </div>
-
-        {{-- PAY LATER PANEL --}}
-        <div id="panelLater" class="later-panel" style="display:none;">
-            <div style="width:60px; height:60px; border-radius:16px; background:#f1f5f9; display:flex; align-items:center; justify-content:center; margin:0 auto 1rem;">
-                <i class="fas fa-clock" style="font-size:1.5rem; color:#67748e;"></i>
-            </div>
-            <h6>Your booking is saved!</h6>
-            <p>
-                Booking <strong>{{ $reservation->reservation_code }}</strong> is reserved for you.<br>
-                You have <strong>2 hours</strong> to complete payment before it expires.<br>
-                Go to <strong>Pay GCash</strong> in the menu when you're ready.
-            </p>
-            <a href="{{ route('dashboard') }}" class="btn-later-dash">
-                <i class="fas fa-chart-pie"></i> Go to Dashboard
-            </a>
-        </div>
-
+        @endif
     </div>{{-- end pay-wrap --}}
 
     <script src="{{ asset('soft-ui-dashboard-main/assets/js/core/bootstrap.bundle.min.js') }}"></script>
     <script>
+    @if ($reservation->status !== 'cancelled')
+    (function() {
+        const expiresAt = {{ strtotime($reservation->expires_at) * 1000 }};
+        function updateTimer() {
+            const now = new Date().getTime();
+            const diff = expiresAt - now;
+            const timerCountdown = document.getElementById('timer-countdown');
+            if (!timerCountdown) return;
+
+            if (diff <= 0) {
+                timerCountdown.innerText = "00:00";
+                clearInterval(timerInterval);
+                alert("Your booking reservation session has expired due to non-payment.");
+                window.location.reload();
+                return;
+            }
+            const mins = Math.floor(diff / 60000);
+            const secs = Math.floor((diff % 60000) / 1000);
+            timerCountdown.innerText = 
+                String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+        }
+        updateTimer();
+        const timerInterval = setInterval(updateTimer, 1000);
+    })();
+    @endif
+
     function copyGcashNumber() {
         const numText = document.getElementById('gcashNumberText').innerText;
         navigator.clipboard.writeText(numText).then(() => {
@@ -958,24 +1025,6 @@
         });
     }
 
-    function showPanel(choice) {
-        const panelNow   = document.getElementById('panelNow');
-        const panelLater = document.getElementById('panelLater');
-        const btnNow     = document.getElementById('btnChooseNow');
-        const btnLater   = document.getElementById('btnChooseLater');
-
-        if (choice === 'now') {
-            panelNow.style.display   = '';
-            panelLater.style.display = 'none';
-            btnNow.classList.add('active-choice');
-            btnLater.classList.remove('active-choice');
-        } else {
-            panelNow.style.display   = 'none';
-            panelLater.style.display = '';
-            btnLater.classList.add('active-choice');
-            btnNow.classList.remove('active-choice');
-        }
-    }
 
     // File preview
     const screenshotInput = document.getElementById('screenshotInput');
@@ -1041,7 +1090,7 @@
         <div class="qr-lightbox-content" onclick="event.stopPropagation()">
             <button type="button" class="qr-lightbox-close" onclick="closeQrLightbox()">&times;</button>
             @if (!empty($ownerGcashQr))
-                <img src="{{ asset($ownerGcashQr) }}" alt="GCash QR Code Full">
+                <img src="{{ route('public.gcash-qr') }}?v={{ basename($ownerGcashQr) }}" alt="GCash QR Code Full">
             @endif
             <div class="qr-lightbox-desc">
                 Scan QR code dynamically to pay <strong>PHP {{ number_format($reservation->grand_total, 2) }}</strong>
